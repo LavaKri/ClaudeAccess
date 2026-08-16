@@ -7,7 +7,8 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
-    "dev": "nodemon server/server.js"
+    "dev": "nodemon server/server.js",
+    "cli-mock": "node mock/cli-mock.js"
   },
   "dependencies": {
     "express": "^5.1.0",
