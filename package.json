@@ -1,0 +1,19 @@
+{
+  "name": "claude-accessible",
+  "version": "0.1.0",
+  "description": "Accessible web interface for claude -p, built for the JAWS screen reader",
+  "private": true,
+  "type": "module",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "nodemon server/server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}
