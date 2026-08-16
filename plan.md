@@ -47,6 +47,13 @@
 - Gestion propre des erreurs process (crash, exit non nul, `claude` introuvable) via une zone `aria-live` d'erreurs dédiée.
 - **Bonus (optionnel)** : section statistiques affichant l'utilisation du contexte, du forfait et la date de reset.
 
+**Protocole de permissions (confirmé par lecture de `claude-code-webui`, cloné en local) :** pas de pause/reprise en direct dans un même run. Un outil non autorisé revient simplement comme un `tool_result` avec `is_error: true` (forme confirmée par capture réelle) ; le client détecte ça, coupe la requête en cours (`abort`), affiche le choix fermé (autoriser une fois / toujours / refuser), et en cas d'autorisation, envoie une **nouvelle** requête `--resume <sessionId>` avec l'outil ajouté à `--allowed-tools`. « Autoriser une fois » n'ajoute l'outil que pour cette reprise ; « toujours autoriser » le persiste pour le reste de la session. `AskUserQuestion` reste une hypothèse non confirmée (absente de `claude-code-webui`), toujours gérée via l'ancien mécanisme de pause sur stdin du mock. Implique un suivi minimal de `session_id` côté front, indépendant de la gestion de session complète prévue à l'étape 3.
+
+## Points de vigilance
+
+- **Risque `--bare`** : la doc officielle indique que `--bare` (qui n'accepte que `ANTHROPIC_API_KEY`, pas l'abonnement Pro/Max OAuth) deviendra le comportement par défaut de `-p` dans une future version. Plusieurs issues GitHub confirment que ce n'est aujourd'hui pas résolu pour les utilisateurs OAuth. On reste volontairement sur l'invocation directe de `claude -p` (sans `--bare`) tant que ce n'est pas le défaut ; à surveiller au fil des mises à jour de `claude`.
+- **SDK vs CLI direct** : décision de rester sur l'invocation directe du binaire `claude` plutôt que le SDK `@anthropic-ai/claude-code`. Le SDK ne fait que spawn le même binaire (vu dans le code de `claude-code-webui`) : ça ne réduit pas le risque `--bare` ci-dessus. Vérifié aussi que l'usage personnel auto-hébergé (comme ce projet) reste dans le cadre toléré par la politique d'utilisation d'Anthropic (clarification de février 2026 sur l'OAuth des abonnements dans des outils tiers) : la restriction vise les services multi-tenant, pas un outil personnel utilisant son propre abonnement.
+
 ## 5. Nettoyage et publication
 
 - Mise en conformité avec les conventions usuelles, design minimaliste avec un peu de CSS.

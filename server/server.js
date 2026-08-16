@@ -29,18 +29,22 @@ function send (ws, payload) {
 	if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
 }
 
-function runPrompt (ws, connectionState, { prompt, model, effort, cwd }) {
+function runPrompt (ws, connectionState, { prompt, model, effort, cwd, sessionId, allowedTools }) {
 	if (connectionState.activeChild) {
 		send(ws, { type: 'error', message: 'A prompt is already running on this connection' });
 		return;
 	}
 
-	let child = spawn(config.cliCommand, [
+	let args = [
 		...config.cliArgs,
 		'--prompt', prompt,
 		'--model', model || 'sonnet',
 		'--effort', effort || 'medium',
-	], { cwd: cwd || process.cwd() });
+	];
+	if (sessionId) args.push('--resume', sessionId);
+	if (allowedTools?.length) args.push('--allowed-tools', allowedTools.join(','));
+
+	let child = spawn(config.cliCommand, args, { cwd: cwd || process.cwd() });
 	connectionState.activeChild = child;
 
 	let lines = createInterface({ input: child.stdout });
@@ -92,7 +96,7 @@ wss.on('connection', ws => {
 			runPrompt(ws, connectionState, request);
 		} else if (request.type === 'abort') {
 			abortPrompt(ws, connectionState);
-		} else if (request.type === 'permission_response' || request.type === 'user_question_response') {
+		} else if (request.type === 'user_question_response') {
 			if (connectionState.activeChild) {
 				connectionState.activeChild.stdin.write(JSON.stringify(request) + '\n');
 			} else {
