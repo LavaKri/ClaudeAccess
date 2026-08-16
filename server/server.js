@@ -25,13 +25,23 @@ app.use(express.static(config.webdir));
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: config.wsPath });
 
-function runPrompt (ws, { prompt, model, effort, cwd }) {
+function send (ws, payload) {
+	if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
+}
+
+function runPrompt (ws, connectionState, { prompt, model, effort, cwd }) {
+	if (connectionState.activeChild) {
+		send(ws, { type: 'error', message: 'A prompt is already running on this connection' });
+		return;
+	}
+
 	let child = spawn(config.cliCommand, [
 		...config.cliArgs,
 		'--prompt', prompt,
 		'--model', model || 'sonnet',
 		'--effort', effort || 'medium',
 	], { cwd: cwd || process.cwd() });
+	connectionState.activeChild = child;
 
 	let lines = createInterface({ input: child.stdout });
 	lines.on('line', line => {
@@ -39,32 +49,56 @@ function runPrompt (ws, { prompt, model, effort, cwd }) {
 	});
 
 	child.stderr.on('data', chunk => {
-		if (ws.readyState === ws.OPEN) {
-			ws.send(JSON.stringify({ type: 'error', message: chunk.toString() }));
-		}
+		send(ws, { type: 'error', message: chunk.toString() });
 	});
 
 	child.on('error', err => {
-		if (ws.readyState === ws.OPEN) {
-			ws.send(JSON.stringify({ type: 'error', message: `Failed to start claude process: ${err.message}` }));
-		}
+		connectionState.activeChild = null;
+		send(ws, { type: 'error', message: `Failed to start claude process: ${err.message}` });
+	});
+
+	child.on('exit', () => {
+		connectionState.activeChild = null;
 	});
 }
 
+function abortPrompt (ws, connectionState) {
+	if (!connectionState.activeChild) {
+		send(ws, { type: 'error', message: 'No prompt is currently running on this connection' });
+		return;
+	}
+	connectionState.activeChild.kill();
+	connectionState.activeChild = null;
+	send(ws, { type: 'result', subtype: 'aborted' });
+}
+
 wss.on('connection', ws => {
+	let connectionState = { activeChild: null };
+
 	ws.on('message', data => {
 		let request;
 		try {
 			request = JSON.parse(data.toString());
 		} catch {
-			ws.send(JSON.stringify({ type: 'error', message: 'Invalid JSON message' }));
+			send(ws, { type: 'error', message: 'Invalid JSON message' });
 			return;
 		}
-		if (!request.prompt) {
-			ws.send(JSON.stringify({ type: 'error', message: 'Missing "prompt" field' }));
-			return;
+
+		if (request.type === 'prompt') {
+			if (!request.prompt) {
+				send(ws, { type: 'error', message: 'Missing "prompt" field' });
+				return;
+			}
+			runPrompt(ws, connectionState, request);
+		} else if (request.type === 'abort') {
+			abortPrompt(ws, connectionState);
+		} else {
+			send(ws, { type: 'error', message: `Unknown message type: ${request.type}` });
 		}
-		runPrompt(ws, request);
+	});
+
+	ws.on('close', () => {
+		connectionState.activeChild?.kill();
 	});
 });
 

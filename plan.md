@@ -30,7 +30,8 @@
 - Formulaire → WebSocket → affichage progressif du texte (deltas), sans historique.
 - Premier test JAWS ici : zone `aria-live="polite"`, pas de déplacement de focus intempestif pendant le streaming.
 - Affichage minimal des `tool_use`/`tool_result` (au moins en texte brut), puisque le mock les inclut déjà.
-- Bouton Annuler / tuer le process en cours.
+- Bouton Annuler / tuer le process en cours, à côté du bouton d'envoi. Pendant que `claude` travaille : le champ prompt est en lecture seule, le bouton d'envoi est désactivé, et inversement seul le bouton Annuler est actif.
+- Distinction importante à prévoir pour l'étape suivante : une **demande de permission** est une question fermée (oui / non / oui-toujours…), alors qu'une **`AskUserQuestion`** reste une question ouverte même si des réponses prédéfinies sont proposées. Conséquence sur l'UI : dans le cas permission, le champ prompt et le bouton d'envoi restent indisponibles (seuls des boutons de réponse fermée apparaissent) ; dans le cas question utilisateur, le champ prompt doit rester disponible pour une réponse libre, en plus des suggestions éventuelles.
 
 ## 3. Historique
 

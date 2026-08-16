@@ -21,8 +21,11 @@ function parseArgs (argv) {
 	return args;
 }
 
+// Returns a promise resolved once the write is flushed. On Windows, a pipe's
+// stdout write is asynchronous and the process can exit before it completes,
+// silently dropping whichever line was written last — awaiting this avoids that.
 function emit (obj) {
-	process.stdout.write(JSON.stringify(obj) + '\n');
+	return new Promise(resolve => process.stdout.write(JSON.stringify(obj) + '\n', resolve));
 }
 
 function wait (ms) {
@@ -37,12 +40,17 @@ function pickResponse () {
 	return CANNED_RESPONSES[Math.floor(Math.random() * CANNED_RESPONSES.length)];
 }
 
+function titleFromPrompt (prompt) {
+	let words = prompt.trim().split(/\s+/).slice(0, 6).join(' ');
+	return words || 'New session';
+}
+
 async function main () {
 	let { prompt, model, effort } = parseArgs(process.argv.slice(2));
 	let sessionId = randomUUID();
 	let messageId = `msg_mock_${randomUUID()}`;
 
-	emit({
+	await emit({
 		type: 'system',
 		subtype: 'init',
 		session_id: sessionId,
@@ -52,9 +60,19 @@ async function main () {
 		cwd: process.cwd(),
 	});
 
+	// Hypothetical event: the real `claude -p` stream-json output has no confirmed
+	// mechanism yet to surface an auto-generated session title (see plan.md).
+	// `-n`/`--name` was confirmed compatible with `-p` but does not appear in the
+	// stream, so this shape is a guess to be corrected once observed for real.
+	await emit({
+		type: 'session_title',
+		session_id: sessionId,
+		title: titleFromPrompt(prompt),
+	});
+
 	await wait(randomDelay(200, 500));
 
-	emit({
+	await emit({
 		type: 'stream_event',
 		session_id: sessionId,
 		event: {
@@ -63,7 +81,7 @@ async function main () {
 		},
 	});
 
-	emit({
+	await emit({
 		type: 'stream_event',
 		session_id: sessionId,
 		event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
@@ -74,7 +92,7 @@ async function main () {
 	for (let i = 0; i < words.length; i++) {
 		let chunk = (i === 0 ? '' : ' ') + words[i];
 		fullText += chunk;
-		emit({
+		await emit({
 			type: 'stream_event',
 			session_id: sessionId,
 			event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: chunk } },
@@ -82,25 +100,25 @@ async function main () {
 		await wait(randomDelay());
 	}
 
-	emit({
+	await emit({
 		type: 'stream_event',
 		session_id: sessionId,
 		event: { type: 'content_block_stop', index: 0 },
 	});
 
-	emit({
+	await emit({
 		type: 'stream_event',
 		session_id: sessionId,
 		event: { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
 	});
 
-	emit({
+	await emit({
 		type: 'stream_event',
 		session_id: sessionId,
 		event: { type: 'message_stop' },
 	});
 
-	emit({
+	await emit({
 		type: 'assistant',
 		session_id: sessionId,
 		message: {
@@ -112,13 +130,26 @@ async function main () {
 		},
 	});
 
-	emit({
+	await emit({
 		type: 'result',
 		subtype: 'success',
 		session_id: sessionId,
 		result: fullText,
 		usage: { input_tokens: prompt.length, output_tokens: fullText.length },
 	});
+
+	// Hypothetical event tied to the real --prompt-suggestions flag: its shape
+	// (and even whether it fires here) hasn't been confirmed for real yet, see
+	// plan.md. Emitted here roughly half the time, to exercise prefilling the
+	// prompt field on the frontend without suggesting one on every single turn.
+	if (Math.random() < 0.5) {
+		await wait(randomDelay(100, 300));
+		await emit({
+			type: 'prompt_suggestion',
+			session_id: sessionId,
+			prompt: 'commit ça',
+		});
+	}
 }
 
 main();
