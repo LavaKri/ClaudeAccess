@@ -4,6 +4,30 @@
 // real usage. Swap for the real `claude` binary once the pipeline is stable.
 
 import { randomUUID } from 'node:crypto';
+import { createInterface } from 'node:readline';
+
+// Responses to permission_request/user_question come back as JSON lines on
+// stdin, keyed by the "id" the request was sent with — mirroring the shape of
+// the real interactive control protocol (input-format=stream-json), which
+// hasn't been captured for real yet, see plan.md.
+const pendingResponses = new Map();
+const stdinInterface = createInterface({ input: process.stdin });
+stdinInterface.on('line', line => {
+	try {
+		let response = JSON.parse(line);
+		let resolve = pendingResponses.get(response.id);
+		if (resolve) {
+			pendingResponses.delete(response.id);
+			resolve(response);
+		}
+	} catch {
+		// Ignore malformed lines.
+	}
+});
+
+function waitForResponse (id) {
+	return new Promise(resolve => pendingResponses.set(id, resolve));
+}
 
 const CANNED_RESPONSES = [
 	"Bonjour ! Ceci est une réponse simulée du mock de claude CLI, générée localement sans consommer d'usage réel.",
@@ -72,6 +96,46 @@ async function main () {
 
 	await wait(randomDelay(200, 500));
 
+	// Hypothetical events: neither shape has been confirmed on the real `claude`
+	// CLI yet (its interactive control protocol wasn't captured for real, see
+	// plan.md). A permission request is a closed question (fixed choices only);
+	// a user question is open (predefined options, but a free-text answer is
+	// still valid) — the frontend treats the two differently.
+	let interactionNote = '';
+	let roll = Math.random();
+	if (roll < 0.3) {
+		let id = randomUUID();
+		await emit({
+			type: 'permission_request',
+			session_id: sessionId,
+			id,
+			text: 'claude veut exécuter `git commit -am "wip"`. Autoriser ?',
+			options: [
+				{ id: 'allow_once', label: 'Autoriser une fois' },
+				{ id: 'allow_always', label: 'Toujours autoriser' },
+				{ id: 'deny', label: 'Refuser' },
+			],
+		});
+		let response = await waitForResponse(id);
+		interactionNote = response.optionId === 'deny'
+			? " (Permission refusée, je n'ai rien exécuté.)"
+			: ' (Permission accordée, commande exécutée.)';
+	} else if (roll < 0.6) {
+		let id = randomUUID();
+		await emit({
+			type: 'user_question',
+			session_id: sessionId,
+			id,
+			text: 'Quel style de message de commit préfères-tu ?',
+			options: [
+				{ id: 'conventional', label: 'Conventional commits' },
+				{ id: 'freeform', label: 'Libre' },
+			],
+		});
+		let response = await waitForResponse(id);
+		interactionNote = ` (Tu as répondu : "${response.optionId || response.text}".)`;
+	}
+
 	await emit({
 		type: 'stream_event',
 		session_id: sessionId,
@@ -87,7 +151,7 @@ async function main () {
 		event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
 	});
 
-	let words = pickResponse().split(' ');
+	let words = (pickResponse() + interactionNote).split(' ');
 	let fullText = '';
 	for (let i = 0; i < words.length; i++) {
 		let chunk = (i === 0 ? '' : ' ') + words[i];
@@ -150,6 +214,10 @@ async function main () {
 			prompt: 'commit ça',
 		});
 	}
+
+	// Listening on stdin (for permission/question responses) keeps the process
+	// alive otherwise, since it's an open handle from Node's perspective.
+	stdinInterface.close();
 }
 
 main();
