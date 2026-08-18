@@ -145,3 +145,11 @@ export async function loadSession (cwd, sessionId) {
 	let session = await readSessionFile(path.join(dir, `${sessionId}.jsonl`));
 	return session && withTitle(session);
 }
+
+// Appends a "custom-title" line, the same shape `claude` itself would write
+// for a manual rename — read back by readSessionFile() above.
+export async function setCustomTitle (cwd, sessionId, title) {
+	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+	let filePath = path.join(dir, `${sessionId}.jsonl`);
+	await fs.appendFile(filePath, JSON.stringify({ type: 'custom-title', customTitle: title }) + '\n');
+}

@@ -1,6 +1,6 @@
 import { create } from './DOMHelpers.js';
 import { connect, send } from './WsClient.js';
-import { fetchProjects, fetchSessions, fetchSession } from './HistoryClient.js';
+import { fetchProjects, fetchSessions, fetchSession, renameSession as renameSessionRequest } from './HistoryClient.js';
 
 const DEFAULT_TITLE = 'Claude code Testing';
 
@@ -56,16 +56,63 @@ function previewText (text) {
 		: words.join(' ');
 }
 
-// Each message is its own H2 (heading text: "<prefix>: <preview>"), so JAWS
-// users can navigate message-to-message with heading-navigation keys, followed
-// by the full text in a paragraph.
-function appendMessage (prefix, text) {
+// All messages of the current conversation, paginated for display rather than
+// shown as one continuously growing log — a continuously auto-scrolling
+// region is exactly the kind of thing that's hard to use with JAWS.
+const PAGE_SIZE = 20;
+let messages = [];
+let currentPage = 1;
+
+function pageCount () {
+	return Math.max(1, Math.ceil(messages.length / PAGE_SIZE));
+}
+
+function updatePaginationControls () {
+	let pages = pageCount();
+	document.getElementById('pageInput').value = currentPage;
+	document.getElementById('pageInput').max = pages;
+	document.getElementById('totalPagesLabel').textContent = `sur ${pages}`;
+	document.getElementById('firstPageButton').disabled = currentPage <= 1;
+	document.getElementById('prevPageButton').disabled = currentPage <= 1;
+	document.getElementById('nextPageButton').disabled = currentPage >= pages;
+	document.getElementById('lastPageButton').disabled = currentPage >= pages;
+}
+
+// Re-renders only the messages of the current page. Each message is its own
+// H2 (heading text: "<prefix>: <preview>"), so JAWS users can navigate
+// message-to-message with heading-navigation keys, followed by the full text
+// in a paragraph.
+function renderMessages () {
+	currentPage = Math.min(Math.max(currentPage, 1), pageCount());
+	let start = (currentPage - 1) * PAGE_SIZE;
+
 	let messageArea = document.getElementById('messageArea');
-	let heading = create('h2', `${prefix}: ${previewText(text)}`);
-	let body = create('p', text);
-	messageArea.appendChild(heading);
-	messageArea.appendChild(body);
-	return body;
+	messageArea.textContent = '';
+	for (let message of messages.slice(start, start + PAGE_SIZE)) {
+		messageArea.appendChild(create('h2', `${message.prefix}: ${previewText(message.text)}`));
+		messageArea.appendChild(create('p', message.text));
+	}
+	updatePaginationControls();
+}
+
+function goToPage (page) {
+	if (Number.isInteger(page)) currentPage = page;
+	renderMessages();
+	setStatus(`Page ${currentPage} sur ${pageCount()}`);
+}
+
+// Adds a message to the log. If the user was already viewing the last page,
+// follows along to the new last page; otherwise leaves their current page
+// alone and just updates the pagination controls (page count).
+function appendMessage (prefix, text) {
+	let wasOnLastPage = currentPage >= pageCount();
+	messages.push({ prefix, text });
+	if (wasOnLastPage) {
+		currentPage = pageCount();
+		renderMessages();
+	} else {
+		updatePaginationControls();
+	}
 }
 
 // Short, separate aria-live region: announces state changes ("Working...",
@@ -95,30 +142,87 @@ function setWorking (working) {
 
 function hideQuestion () {
 	pendingQuestion = null;
-	let questionArea = document.getElementById('questionArea');
-	questionArea.style.display = 'none';
-	questionArea.textContent = '';
+	let dialog = document.getElementById('questionArea');
+	dialog.oncancel = null;
+	dialog.textContent = '';
+	if (dialog.open) dialog.close();
 }
 
-// Renders the question area with a text and a set of option buttons, and
+// Renders the question dialog with a text and a set of option buttons, and
 // replicates the text into the aria-live status region so it's read out
-// immediately, alongside focus moving to the first option.
+// immediately, alongside focus moving to the first option. Escape is blocked
+// here (unlike showInputDialog below): a permission request or user question
+// must be answered through one of the option buttons.
 function renderQuestion (text, options) {
-	let questionArea = document.getElementById('questionArea');
-	questionArea.textContent = '';
-	questionArea.appendChild(create('p', text));
+	let dialog = document.getElementById('questionArea');
+	dialog.textContent = '';
+	dialog.appendChild(create('p', text));
 
 	let firstButton = null;
 	for (let option of options) {
 		let button = create('button', option.label);
 		button.type = 'button';
 		button.addEventListener('click', option.onClick);
-		questionArea.appendChild(button);
+		dialog.appendChild(button);
 		firstButton ??= button;
 	}
-	questionArea.style.display = 'block';
+	dialog.oncancel = event => event.preventDefault();
+	if (!dialog.open) dialog.showModal();
 	setStatus(text);
 	firstButton?.focus();
+}
+
+// Reusable modal input flow: shows a title, a message/label, a text field
+// pre-filled with defaultValue, and OK/Annuler/Fermer. Resolves with the
+// entered text, or null if cancelled/closed (including via Escape).
+function showInputDialog (title, message, defaultValue = '') {
+	return new Promise(resolve => {
+		let dialog = document.getElementById('questionArea');
+		dialog.textContent = '';
+		dialog.oncancel = null;
+
+		function finish (value) {
+			dialog.textContent = '';
+			if (dialog.open) dialog.close();
+			resolve(value);
+		}
+
+		let closeButton = create('button', 'Fermer');
+		closeButton.type = 'button';
+		closeButton.addEventListener('click', () => finish(null));
+		dialog.appendChild(closeButton);
+		dialog.appendChild(create('h2', title));
+
+		let form = document.createElement('form');
+		let fieldId = 'inputDialogField';
+		let label = create('label', message);
+		label.setAttribute('for', fieldId);
+		let field = document.createElement('input');
+		field.type = 'text';
+		field.id = fieldId;
+		field.value = defaultValue;
+
+		let okButton = create('button', 'OK');
+		okButton.type = 'submit';
+		let cancelButton = create('button', 'Annuler');
+		cancelButton.type = 'button';
+		cancelButton.addEventListener('click', () => finish(null));
+
+		form.appendChild(label);
+		form.appendChild(field);
+		form.appendChild(okButton);
+		form.appendChild(cancelButton);
+		form.addEventListener('submit', event => {
+			event.preventDefault();
+			finish(field.value);
+		});
+		dialog.appendChild(form);
+
+		dialog.addEventListener('cancel', () => finish(null), { once: true });
+		dialog.showModal();
+		field.focus();
+		field.select();
+	});
 }
 
 async function answerUserQuestion (optionId) {
@@ -297,7 +401,9 @@ async function onAbortClick () {
 // Resets the conversation view for a brand new (or newly loaded) session,
 // without touching the working directory or the workspace list.
 function resetConversationView () {
-	document.getElementById('messageArea').textContent = '';
+	messages = [];
+	currentPage = 1;
+	renderMessages();
 	hideQuestion();
 	setWorking(false);
 	setStatus('');
@@ -320,9 +426,30 @@ async function resumeSession (sessionId) {
 	allowedTools = [];
 	awaitingFreshTitle = false;
 	setSessionTitle(session.title);
-	for (let message of session.messages) {
-		appendMessage(message.role === 'user' ? 'Vous dites' : 'Claude a répondu', message.text);
+	messages = session.messages.map(message => ({
+		prefix: message.role === 'user' ? 'Vous dites' : 'Claude a répondu',
+		text: message.text,
+	}));
+	currentPage = pageCount();
+	renderMessages();
+}
+
+// Prompts for a new title via the shared input dialog, persists it (as a
+// custom-title line, same as a real `claude` rename — see history.js), and
+// refreshes the list plus the live H1 if that session is the current one.
+async function renameSession (sessionId, currentTitle) {
+	let newTitle = await showInputDialog('Renommer la session', 'Nouveau titre :', currentTitle);
+	if (newTitle === null) return;
+	newTitle = newTitle.trim();
+	if (!newTitle || newTitle === currentTitle) return;
+
+	let ok = await renameSessionRequest(currentCwd, sessionId, newTitle);
+	if (!ok) {
+		setStatus('Échec du renommage de la session.');
+		return;
 	}
+	if (sessionId === currentSessionId) setSessionTitle(newTitle);
+	await loadSessionList();
 }
 
 async function loadSessionList () {
@@ -340,8 +467,18 @@ async function loadSessionList () {
 		button.type = 'button';
 		button.addEventListener('click', () => resumeSession(session.sessionId));
 
+		// Collapsed by default: keeps per-session actions (rename today, delete/
+		// archive later) out of the way without needing a separate screen.
+		let details = document.createElement('details');
+		details.appendChild(create('summary', `Options pour ${session.title}`));
+		let renameButton = create('button', 'Renommer');
+		renameButton.type = 'button';
+		renameButton.addEventListener('click', () => renameSession(session.sessionId, session.title));
+		details.appendChild(renameButton);
+
 		let item = document.createElement('li');
 		item.appendChild(button);
+		item.appendChild(details);
 		list.appendChild(item);
 	}
 }
@@ -398,8 +535,15 @@ function onWindowLoad () {
 	let refreshSessionsButton = document.getElementById('refreshSessionsButton');
 	refreshSessionsButton.addEventListener('click', loadSessionList);
 
+	document.getElementById('firstPageButton').addEventListener('click', () => goToPage(1));
+	document.getElementById('prevPageButton').addEventListener('click', () => goToPage(currentPage - 1));
+	document.getElementById('nextPageButton').addEventListener('click', () => goToPage(currentPage + 1));
+	document.getElementById('lastPageButton').addEventListener('click', () => goToPage(pageCount()));
+	document.getElementById('pageInput').addEventListener('change', event => goToPage(Number(event.target.value)));
+
 	loadWorkspaces();
 	loadSessionList();
+	renderMessages();
 }
 
 window.addEventListener('load', onWindowLoad);

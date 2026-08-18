@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
-import { listProjects, listSessions, loadSession } from './history.js';
+import { listProjects, listSessions, loadSession, setCustomTitle } from './history.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,6 +22,7 @@ const config = {
 
 const app = express();
 app.use(express.static(config.webdir));
+app.use(express.json());
 
 app.get('/api/projects', async (req, res) => {
 	res.json(await listProjects());
@@ -40,6 +41,17 @@ app.get('/api/sessions/:sessionId', async (req, res) => {
 		return;
 	}
 	res.json(session);
+});
+
+app.put('/api/sessions/:sessionId/title', async (req, res) => {
+	let cwd = String(req.query.cwd || process.cwd());
+	let title = String(req.body?.title || '').trim();
+	if (!title) {
+		res.status(400).json({ error: 'Missing "title" field' });
+		return;
+	}
+	await setCustomTitle(cwd, req.params.sessionId, title);
+	res.json({ ok: true });
 });
 
 const server = http.createServer(app);

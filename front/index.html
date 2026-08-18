@@ -16,8 +16,17 @@
 </div>
 <div id="messageArea" role="log" aria-live="off">
 </div>
-<div id="questionArea" style="display:none">
+<div id="paginationArea" role="group" aria-label="Pagination des messages">
+<button type="button" id="firstPageButton">Première page</button>
+<button type="button" id="prevPageButton">Page précédente</button>
+<label for="pageInput">Page </label>
+<input type="number" id="pageInput" min="1" value="1" size="4">
+<span id="totalPagesLabel">sur 1</span>
+<button type="button" id="nextPageButton">Page suivante</button>
+<button type="button" id="lastPageButton">Dernière page</button>
 </div>
+<dialog id="questionArea">
+</dialog>
 <div id="promptArea">
 <h2>Prompt</h2>
 <form id="promptForm">

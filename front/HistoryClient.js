@@ -17,3 +17,12 @@ export async function fetchSession (cwd, sessionId) {
 	if (!response.ok) return null;
 	return response.json();
 }
+
+export async function renameSession (cwd, sessionId, title) {
+	let response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/title?cwd=${encodeURIComponent(cwd)}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ title }),
+	});
+	return response.ok;
+}
