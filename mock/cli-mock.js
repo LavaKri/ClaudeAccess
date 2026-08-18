@@ -73,11 +73,6 @@ function pickResponse () {
 	return CANNED_RESPONSES[Math.floor(Math.random() * CANNED_RESPONSES.length)];
 }
 
-function titleFromPrompt (prompt) {
-	let words = prompt.trim().split(/\s+/).slice(0, 6).join(' ');
-	return words || 'New session';
-}
-
 const TOOL_NAME = 'Bash';
 const TOOL_INPUT = { command: 'git commit -am "wip"' };
 
@@ -139,19 +134,12 @@ async function main () {
 		cwd: process.cwd(),
 	});
 
-	// Hypothetical event: the real `claude -p` stream-json output has no confirmed
-	// mechanism yet to surface an auto-generated session title (see plan.md).
-	// `-n`/`--name` was confirmed compatible with `-p` but does not appear in the
-	// stream, so this shape is a guess to be corrected once observed for real.
-	// Only sent for a brand new session: a real title wouldn't be re-generated
-	// on every follow-up of the same conversation.
-	if (!isResuming) {
-		await emit({
-			type: 'session_title',
-			session_id: sessionId,
-			title: titleFromPrompt(prompt),
-		});
-	}
+	// No fake session-title stream event here: confirmed for real (see plan.md)
+	// that Claude Code *does* generate an automatic title ("ai-title") for every
+	// session, including plain `-p` runs, but it's written asynchronously to the
+	// session's own file on disk (~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl),
+	// never sent over stdout. Real title support belongs with session/history
+	// persistence, since it reads the same file — not simulated here.
 
 	await wait(randomDelay(200, 500));
 
@@ -251,16 +239,17 @@ async function main () {
 		usage: { input_tokens: prompt.length, output_tokens: fullText.length },
 	});
 
-	// Hypothetical event tied to the real --prompt-suggestions flag: its shape
-	// (and even whether it fires here) hasn't been confirmed for real yet, see
-	// plan.md. Emitted here roughly half the time, to exercise prefilling the
-	// prompt field on the frontend without suggesting one on every single turn.
+	// Confirmed for real with --prompt-suggestions=true on an actionable prompt
+	// (see plan.md): the field is "suggestion", fires after "result", no id/
+	// response expected (fire-and-forget, unlike user_question). Emitted here
+	// roughly half the time, to exercise prefilling the prompt field on the
+	// frontend without suggesting one on every single turn.
 	if (Math.random() < 0.5) {
 		await wait(randomDelay(100, 300));
 		await emit({
 			type: 'prompt_suggestion',
 			session_id: sessionId,
-			prompt: 'commit ça',
+			suggestion: 'commit ça',
 		});
 	}
 

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
+import { listProjects, listSessions, loadSession } from './history.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +22,25 @@ const config = {
 
 const app = express();
 app.use(express.static(config.webdir));
+
+app.get('/api/projects', async (req, res) => {
+	res.json(await listProjects());
+});
+
+app.get('/api/sessions', async (req, res) => {
+	let cwd = String(req.query.cwd || process.cwd());
+	res.json(await listSessions(cwd));
+});
+
+app.get('/api/sessions/:sessionId', async (req, res) => {
+	let cwd = String(req.query.cwd || process.cwd());
+	let session = await loadSession(cwd, req.params.sessionId);
+	if (!session) {
+		res.status(404).json({ error: 'Session not found' });
+		return;
+	}
+	res.json(session);
+});
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: config.wsPath });

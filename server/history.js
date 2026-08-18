@@ -1,0 +1,147 @@
+// Reads Claude Code's own session/project persistence — no storage of our own.
+// Sessions live at ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl, and
+// known working directories are listed in ~/.claude.json's "projects" object.
+// Encoding scheme and file shapes confirmed for real, see plan.md.
+
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+
+const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
+const CONFIG_PATH = path.join(os.homedir(), '.claude.json');
+
+export function encodeProjectPath (projectPath) {
+	let normalized = projectPath.replace(/[\\/]+$/, '');
+	return normalized.replace(/[/\\:._]/g, '-');
+}
+
+// Known working directories, deduped by their encoded folder name (Windows
+// paths can appear twice in ~/.claude.json, once with \ and once with /),
+// limited to the ones that actually have a history directory.
+export async function listProjects () {
+	let existingEncoded;
+	try {
+		existingEncoded = new Set(await fs.readdir(PROJECTS_DIR));
+	} catch {
+		return [];
+	}
+
+	let projectPaths;
+	try {
+		let config = JSON.parse(await fs.readFile(CONFIG_PATH, 'utf8'));
+		projectPaths = Object.keys(config.projects || {});
+	} catch {
+		projectPaths = [];
+	}
+
+	let seen = new Set();
+	let projects = [];
+	for (let projectPath of projectPaths) {
+		let encodedName = encodeProjectPath(projectPath);
+		if (!existingEncoded.has(encodedName) || seen.has(encodedName)) continue;
+		seen.add(encodedName);
+		projects.push({ path: projectPath, encodedName });
+	}
+	return projects;
+}
+
+function extractText (content) {
+	if (typeof content === 'string') return content;
+	if (Array.isArray(content)) {
+		for (let item of content) if (item.type === 'text' && item.text) return item.text;
+	}
+	return '';
+}
+
+async function readSessionFile (filePath) {
+	let raw;
+	try {
+		raw = await fs.readFile(filePath, 'utf8');
+	} catch {
+		return null;
+	}
+	let lines = raw.trim().split('\n').filter(Boolean);
+	if (!lines.length) return null;
+
+	let sessionId = path.basename(filePath, '.jsonl');
+	let startTime = null;
+	let lastTime = null;
+	let lastMessagePreview = '';
+	let aiTitle = '';
+	let customTitle = '';
+	let messageIds = new Set();
+	let messages = [];
+
+	for (let line of lines) {
+		let entry;
+		try {
+			entry = JSON.parse(line);
+		} catch {
+			continue;
+		}
+
+		if (entry.type === 'ai-title') { aiTitle = entry.aiTitle; continue; }
+		if (entry.type === 'custom-title') { customTitle = entry.customTitle; continue; }
+		if (entry.type !== 'user' && entry.type !== 'assistant') continue;
+
+		if (entry.timestamp) {
+			if (!startTime || entry.timestamp < startTime) startTime = entry.timestamp;
+			if (!lastTime || entry.timestamp > lastTime) lastTime = entry.timestamp;
+		}
+		if (entry.message?.id) messageIds.add(entry.message.id);
+
+		let text = extractText(entry.message?.content);
+		if (!text) continue;
+		if (entry.type === 'assistant') lastMessagePreview = text.slice(0, 100);
+		messages.push({ role: entry.message?.role || entry.type, text });
+	}
+
+	return {
+		sessionId, startTime, lastTime, lastMessagePreview, aiTitle, customTitle,
+		messages, messageIds,
+	};
+}
+
+function isSubsetOf (a, b) {
+	if (a.size > b.size) return false;
+	for (let id of a) if (!b.has(id)) return false;
+	return true;
+}
+
+function withTitle (session) {
+	let { messageIds, ...rest } = session;
+	return { ...rest, title: rest.customTitle || rest.aiTitle || rest.lastMessagePreview || 'Session sans titre' };
+}
+
+// A conversation resumed or forked can leave behind more than one file for
+// what's really the same logical session; drop any whose message set is
+// wholly contained in another's, keeping only the most complete version —
+// same de-duplication approach as claude-code-webui.
+export async function listSessions (cwd) {
+	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+	let files;
+	try {
+		files = (await fs.readdir(dir)).filter(f => f.endsWith('.jsonl'));
+	} catch {
+		return [];
+	}
+
+	let sessions = (await Promise.all(files.map(f => readSessionFile(path.join(dir, f)))))
+		.filter(Boolean);
+
+	sessions.sort((a, b) => a.messageIds.size - b.messageIds.size);
+	let unique = [];
+	for (let session of sessions) {
+		let isSubset = unique.some(other => isSubsetOf(session.messageIds, other.messageIds));
+		if (!isSubset) unique.push(session);
+	}
+
+	unique.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+	return unique.map(withTitle);
+}
+
+export async function loadSession (cwd, sessionId) {
+	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+	let session = await readSessionFile(path.join(dir, `${sessionId}.jsonl`));
+	return session && withTitle(session);
+}

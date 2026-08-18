@@ -39,13 +39,20 @@
 - Bouton « Nouvelle session » (reset côté serveur + client).
 - Gestion du titre de session (via `-n/--name` réel, ou stocké côté serveur pour le mock).
 
+**Titre de session et suggestions de prompt (confirmés réels, plus des hypothèses) :**
+- `--prompt-suggestions=true` déclenche bien un événement `{"type":"prompt_suggestion","suggestion":"...","session_id":"..."}` en fin de flux, après `result` — confirmé sur un vrai `claude -p` avec un prompt « actionnable » (un prompt trivial ne suffit pas à le déclencher). Champ : `suggestion` (pas `prompt`). Pas d'`id`/réponse attendue, contrairement à `user_question`.
+- Un titre de session est bien généré automatiquement pour toute session, y compris un simple `-p` (confirmé en inspectant directement `~/.claude/projects/<cwd-encodé>/<sessionId>.jsonl`, où apparaît une ligne `{"type":"ai-title","aiTitle":"...","sessionId":"..."}`). Il existe aussi `custom-title` (renommage manuel) et `last-prompt`. **Mais ça ne transite jamais par le flux `stdout`** — écrit de façon asynchrone dans le fichier de session sur disque. Le mock n'émule donc plus de faux événement de titre dans le flux ; le vrai titre sera géré à l'étape 3 (lecture du même fichier de session, comme le fait `claude-code-webui`).
+- Encodage du chemin de projet vers le nom de dossier dans `~/.claude/projects/` (confirmé via le code de `claude-code-webui`) : `/`, `\`, `:`, `.`, `_` → `-`.
+
 ## 4. Gestion des flux de travail
 
+- ~~Changement de répertoire de travail, mémorisation des derniers répertoires utilisés, liste des sessions récentes, reprise de session, récupération du titre réel~~ — fait (voir ci-dessous).
 - Choix du modèle (`--model`), de l'effort (`--effort`), du mode de permission (`--permission-mode`).
-- Changement de répertoire de travail (cwd du `spawn`), mémorisation des derniers répertoires utilisés.
-- Liste des sessions récentes du répertoire courant, reprise de session (`--resume` / `-c` / `--fork-session`).
+- Renommage de session (`custom-title`) — reporté à plus tard.
 - Gestion propre des erreurs process (crash, exit non nul, `claude` introuvable) via une zone `aria-live` d'erreurs dédiée.
 - **Bonus (optionnel)** : section statistiques affichant l'utilisation du contexte, du forfait et la date de reset.
+
+**Historique, sessions et répertoire de travail (fait) :** confirmé qu'aucun stockage propre n'est nécessaire — `claude` persiste déjà tout dans `~/.claude/projects/<cwd-encodé>/<sessionId>.jsonl`, et `~/.claude.json` liste déjà les répertoires de travail connus (`projects`). Le serveur (`server/history.js`) ne fait que lire ces fichiers, exposés via trois routes REST (`GET /api/projects`, `GET /api/sessions?cwd=`, `GET /api/sessions/:sessionId?cwd=`) — pas de WebSocket pour ces données statiques. Dédoublonnage des sessions continuées/forkées par sous-ensemble d'ID de messages (même algorithme que `claude-code-webui`). Le titre réel (`ai-title`/`custom-title`) est récupéré avec un délai après la fin d'un tour (écriture asynchrone sur disque, non confirmée dans quel délai précisément), et immédiatement en cas de reprise d'une session existante. Changer de répertoire de travail réinitialise la conversation (nouvelle session, `allowedTools` vidé) et recharge la liste des sessions de ce répertoire.
 
 **Protocole de permissions (confirmé par lecture de `claude-code-webui`, cloné en local) :** pas de pause/reprise en direct dans un même run. Un outil non autorisé revient simplement comme un `tool_result` avec `is_error: true` (forme confirmée par capture réelle) ; le client détecte ça, coupe la requête en cours (`abort`), affiche le choix fermé (autoriser une fois / toujours / refuser), et en cas d'autorisation, envoie une **nouvelle** requête `--resume <sessionId>` avec l'outil ajouté à `--allowed-tools`. « Autoriser une fois » n'ajoute l'outil que pour cette reprise ; « toujours autoriser » le persiste pour le reste de la session. `AskUserQuestion` reste une hypothèse non confirmée (absente de `claude-code-webui`), toujours gérée via l'ancien mécanisme de pause sur stdin du mock. Implique un suivi minimal de `session_id` côté front, indépendant de la gestion de session complète prévue à l'étape 3.
 
