@@ -13,6 +13,9 @@ let awaitingToolPermission = null; // { toolName, toolUseId }
 let currentCwd = '';
 let currentSessionId = null;
 let allowedTools = [];
+// Known working directories, loaded once so workspace buttons can show a
+// short label while still knowing the full path to switch to.
+let workspaces = [];
 // True right after starting a brand new (non-resumed) prompt: the real title
 // isn't known yet, since Claude Code writes it to disk asynchronously after
 // the turn ends — see plan.md. Used to trigger a delayed fetch once done.
@@ -26,11 +29,43 @@ function wait (ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function appendMessage (label, text) {
+// Reads the model/effort/permission-mode selects next to the prompt form, so
+// every prompt sent (including the silent "continue" retries after a tool
+// permission grant) uses the values currently chosen.
+function getRunOptions () {
+	return {
+		model: document.getElementById('modelSelect').value,
+		effort: document.getElementById('effortSelect').value,
+		permissionMode: document.getElementById('permissionModeSelect').value,
+	};
+}
+
+const PREVIEW_WORD_COUNT = 12;
+
+// First sentence of the text if it's short enough, otherwise the first
+// PREVIEW_WORD_COUNT words — used so screen reader users can jump message to
+// message via headings without having the whole text read out each time.
+function previewText (text) {
+	let firstSentence = text.match(/^.*?[.!?](\s|$)/);
+	if (firstSentence && firstSentence[0].split(/\s+/).length <= PREVIEW_WORD_COUNT) {
+		return firstSentence[0].trim();
+	}
+	let words = text.trim().split(/\s+/);
+	return words.length > PREVIEW_WORD_COUNT
+		? words.slice(0, PREVIEW_WORD_COUNT).join(' ') + '…'
+		: words.join(' ');
+}
+
+// Each message is its own H2 (heading text: "<prefix>: <preview>"), so JAWS
+// users can navigate message-to-message with heading-navigation keys, followed
+// by the full text in a paragraph.
+function appendMessage (prefix, text) {
 	let messageArea = document.getElementById('messageArea');
-	let block = create('p', `${label}: ${text}`);
-	messageArea.appendChild(block);
-	return block;
+	let heading = create('h2', `${prefix}: ${previewText(text)}`);
+	let body = create('p', text);
+	messageArea.appendChild(heading);
+	messageArea.appendChild(body);
+	return body;
 }
 
 // Short, separate aria-live region: announces state changes ("Working...",
@@ -146,12 +181,16 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	await send({
 		type: 'prompt', prompt: 'continue', cwd: currentCwd,
 		sessionId: currentSessionId, allowedTools: toolsForThisRun,
+		...getRunOptions(),
 	});
 }
 
 function cacheToolUse (message) {
 	for (let item of message.message?.content ?? []) {
-		if (item.type === 'tool_use') toolUseCache.set(item.id, { name: item.name, input: item.input });
+		if (item.type === 'tool_use') {
+			toolUseCache.set(item.id, { name: item.name, input: item.input });
+			appendMessage('Utilisation de l\'outil', `${item.name} ${JSON.stringify(item.input)}`);
+		}
 	}
 }
 
@@ -202,7 +241,7 @@ function onServerMessage (message) {
 		setWorking(false);
 		hideQuestion();
 		setStatus('Response finished');
-		appendMessage('Result', message.result ?? `(${message.subtype})`);
+		appendMessage('Claude a répondu', message.result ?? `(${message.subtype})`);
 		if (awaitingFreshTitle && message.subtype !== 'aborted') {
 			awaitingFreshTitle = false;
 			fetchFreshTitle();
@@ -216,8 +255,10 @@ function onServerMessage (message) {
 		return;
 	}
 	// Everything else (streaming deltas, system/tool events, the duplicate final
-	// assistant message...) is only useful for debugging at this stage.
-	appendMessage('Debug', JSON.stringify(message));
+	// assistant message...) is only useful for debugging at this stage, and
+	// hidden from the log for now. Not removed: still useful when debugging the
+	// protocol locally.
+	// appendMessage('Debug', JSON.stringify(message));
 }
 
 async function onPromptSubmit (event) {
@@ -229,7 +270,7 @@ async function onPromptSubmit (event) {
 	if (!text.trim()) return;
 
 	promptField.value = '';
-	appendMessage('You', text);
+	appendMessage('Vous dites', text);
 
 	if (pendingQuestion) {
 		let question = pendingQuestion;
@@ -243,7 +284,10 @@ async function onPromptSubmit (event) {
 	if (!currentSessionId) awaitingFreshTitle = true;
 	setWorking(true);
 	setStatus('Working...');
-	await send({ type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, allowedTools });
+	await send({
+		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, allowedTools,
+		...getRunOptions(),
+	});
 }
 
 async function onAbortClick () {
@@ -251,7 +295,7 @@ async function onAbortClick () {
 }
 
 // Resets the conversation view for a brand new (or newly loaded) session,
-// without touching the working directory or the recent-projects list.
+// without touching the working directory or the workspace list.
 function resetConversationView () {
 	document.getElementById('messageArea').textContent = '';
 	hideQuestion();
@@ -277,7 +321,7 @@ async function resumeSession (sessionId) {
 	awaitingFreshTitle = false;
 	setSessionTitle(session.title);
 	for (let message of session.messages) {
-		appendMessage(message.role === 'user' ? 'You' : 'Result', message.text);
+		appendMessage(message.role === 'user' ? 'Vous dites' : 'Claude a répondu', message.text);
 	}
 }
 
@@ -286,8 +330,11 @@ async function loadSessionList () {
 	let list = document.getElementById('sessionList');
 	list.textContent = '';
 	for (let session of sessions) {
+		// Comma-separated, locale-formatted date (browser's own locale/regional
+		// settings — no hardcoded format) rather than parentheses, for clearer
+		// screen reader phrasing.
 		let label = session.lastTime
-			? `${session.title} (${new Date(session.lastTime).toLocaleString()})`
+			? `${session.title}, ${new Date(session.lastTime).toLocaleString()}`
 			: session.title;
 		let button = create('button', label);
 		button.type = 'button';
@@ -299,22 +346,38 @@ async function loadSessionList () {
 	}
 }
 
-async function loadRecentProjects () {
-	let projects = await fetchProjects();
-	let datalist = document.getElementById('recentProjects');
-	datalist.textContent = '';
-	for (let project of projects) {
-		let option = document.createElement('option');
-		option.value = project.path;
-		datalist.appendChild(option);
+// Renders one button per known workspace, labeled with only the last path
+// segment (a `<label>`/`<select>` or a text input with a full path read out
+// isn't as easy to scan with a screen reader) — the full path is kept as a
+// title attribute (tooltip) and used as the actual cwd on click.
+function workspaceLabel (workspacePath) {
+	let segments = workspacePath.split(/[\\/]+/).filter(Boolean);
+	return segments[segments.length - 1] || workspacePath;
+}
+
+async function loadWorkspaces () {
+	workspaces = await fetchProjects();
+	let container = document.getElementById('workspaceList');
+	container.textContent = '';
+	for (let workspace of workspaces) {
+		let button = create('button', workspaceLabel(workspace.path));
+		button.type = 'button';
+		button.title = workspace.path;
+		button.addEventListener('click', () => selectWorkspace(workspace.path));
+		container.appendChild(button);
 	}
 }
 
-async function onCwdSubmit (event) {
-	event.preventDefault();
-	currentCwd = document.getElementById('cwd').value.trim();
+async function selectWorkspace (workspacePath) {
+	currentCwd = workspacePath;
 	startNewSession();
 	await loadSessionList();
+}
+
+// Placeholder: will open a folder-picker popup to add a new workspace not
+// already known to `claude` — left as a stub for now (to discuss).
+function onAddWorkspaceClick () {
+	setStatus('Ajout d’un espace de travail : pas encore implémenté.');
 }
 
 function onWindowLoad () {
@@ -326,8 +389,8 @@ function onWindowLoad () {
 	let abortButton = document.getElementById('abortButton');
 	abortButton.addEventListener('click', onAbortClick);
 
-	let cwdForm = document.getElementById('cwdForm');
-	cwdForm.addEventListener('submit', onCwdSubmit);
+	let addWorkspaceButton = document.getElementById('addWorkspaceButton');
+	addWorkspaceButton.addEventListener('click', onAddWorkspaceClick);
 
 	let newSessionButton = document.getElementById('newSessionButton');
 	newSessionButton.addEventListener('click', startNewSession);
@@ -335,7 +398,7 @@ function onWindowLoad () {
 	let refreshSessionsButton = document.getElementById('refreshSessionsButton');
 	refreshSessionsButton.addEventListener('click', loadSessionList);
 
-	loadRecentProjects();
+	loadWorkspaces();
 	loadSessionList();
 }
 

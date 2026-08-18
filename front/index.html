@@ -3,18 +3,15 @@
 <meta charset="UTF-8"/>
 <title>Claude Code Testing</title>
 </head><body>
-<h1 id="sessionTitle">Claude code Testing</h1>
 <div id="workflowArea">
-<form id="cwdForm">
-<label for="cwd">Répertoire de travail: </label>
-<input type="text" id="cwd" name="cwd" list="recentProjects" size="60">
-<datalist id="recentProjects"></datalist>
-<button type="submit">Changer</button>
-</form>
+<h2>Espace de travail</h2>
+<div id="workspaceList"></div>
+<button type="button" id="addWorkspaceButton">Ajouter un espace de travail</button>
 <button type="button" id="newSessionButton">Nouvelle session</button>
 <button type="button" id="refreshSessionsButton">Rafraîchir les sessions</button>
 <ul id="sessionList"></ul>
 </div>
+<h1 id="sessionTitle">Claude code Testing</h1>
 <div id="statusArea" role="status" aria-live="polite">
 </div>
 <div id="messageArea" role="log" aria-live="off">
@@ -22,11 +19,33 @@
 <div id="questionArea" style="display:none">
 </div>
 <div id="promptArea">
+<h2>Prompt</h2>
 <form id="promptForm">
 <label for="prompt">Prompt: </label>
 <textarea id="prompt" name="prompt" rows="10" cols="100"></textarea>
 <button type="submit" id="sendButton">Send</button>
 <button type="button" id="abortButton" disabled>Abort</button>
+<div id="optionsArea">
+<label for="modelSelect">Modèle: </label>
+<select id="modelSelect" name="model">
+<option value="sonnet" selected>Sonnet</option>
+<option value="opus">Opus</option>
+<option value="haiku">Haiku</option>
+</select>
+<label for="effortSelect">Effort: </label>
+<select id="effortSelect" name="effort">
+<option value="low" selected>Faible</option>
+<option value="medium">Moyen</option>
+<option value="high">Élevé</option>
+</select>
+<label for="permissionModeSelect">Mode de permission: </label>
+<select id="permissionModeSelect" name="permissionMode">
+<option value="default" selected>Par défaut</option>
+<option value="acceptEdits">Accepter les modifications</option>
+<option value="plan">Plan</option>
+<option value="bypassPermissions">Ignorer les permissions</option>
+</select>
+</div>
 </form>
 </div>
 <script type="module" src="index.js"></script>

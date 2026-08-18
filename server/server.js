@@ -49,7 +49,7 @@ function send (ws, payload) {
 	if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
 }
 
-function runPrompt (ws, connectionState, { prompt, model, effort, cwd, sessionId, allowedTools }) {
+function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode, cwd, sessionId, allowedTools }) {
 	if (connectionState.activeChild) {
 		send(ws, { type: 'error', message: 'A prompt is already running on this connection' });
 		return;
@@ -59,7 +59,8 @@ function runPrompt (ws, connectionState, { prompt, model, effort, cwd, sessionId
 		...config.cliArgs,
 		'--prompt', prompt,
 		'--model', model || 'sonnet',
-		'--effort', effort || 'medium',
+		'--effort', effort || 'low',
+		'--permission-mode', permissionMode || 'default',
 	];
 	if (sessionId) args.push('--resume', sessionId);
 	if (allowedTools?.length) args.push('--allowed-tools', allowedTools.join(','));

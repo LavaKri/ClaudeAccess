@@ -43,11 +43,12 @@ const CANNED_RESPONSES = [
 ];
 
 function parseArgs (argv) {
-	let args = { prompt: '', model: 'sonnet', effort: 'medium', resume: '', allowedTools: [] };
+	let args = { prompt: '', model: 'sonnet', effort: 'medium', permissionMode: 'default', resume: '', allowedTools: [] };
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] === '--prompt') args.prompt = argv[++i] ?? '';
 		else if (argv[i] === '--model') args.model = argv[++i] ?? args.model;
 		else if (argv[i] === '--effort') args.effort = argv[++i] ?? args.effort;
+		else if (argv[i] === '--permission-mode') args.permissionMode = argv[++i] ?? args.permissionMode;
 		else if (argv[i] === '--resume') args.resume = argv[++i] ?? '';
 		else if (argv[i] === '--allowed-tools') args.allowedTools = (argv[++i] ?? '').split(',').filter(Boolean);
 	}
