@@ -60,6 +60,31 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
 	res.json({ ok: true });
 });
 
+// Opens the real Windows folder-browser dialog server-side (this app is
+// always self-hosted on the same machine as the browser using it, so that's
+// fair game — unlike a public web app, which couldn't do this at all: a
+// browser sandbox only ever exposes relative File info, never an absolute OS
+// path). Blocks this one request until the user picks a folder or cancels;
+// resolves to { path: null } on cancel.
+app.post('/api/pick-folder', async (req, res) => {
+	let script = [
+		'Add-Type -AssemblyName System.Windows.Forms',
+		'$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
+		"$dialog.Description = 'Choisir un dossier de travail'",
+		'if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }',
+	].join('; ');
+
+	let child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+	let output = '';
+	child.stdout.on('data', chunk => { output += chunk; });
+	child.on('error', err => {
+		res.status(500).json({ error: err.message });
+	});
+	child.on('close', () => {
+		res.json({ path: output.trim() || null });
+	});
+});
+
 app.post('/api/sessions/:sessionId/duplicate', async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
 	let newSessionId = await duplicateSession(cwd, req.params.sessionId);

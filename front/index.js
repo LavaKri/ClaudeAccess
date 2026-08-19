@@ -10,8 +10,12 @@ import {
 const LAST_WORKSPACE_KEY = 'claudeAccessible.lastWorkspace';
 const LAST_SESSION_KEY = 'claudeAccessible.lastSessionId';
 const WORKSPACE_NAMES_KEY = 'claudeAccessible.workspaceNames';
+const EXTRA_WORKSPACES_KEY = 'claudeAccessible.extraWorkspaces';
+const RUN_OPTIONS_PREFIX = 'claudeAccessible.runOptions.';
+const LAST_RUN_OPTIONS_KEY = 'claudeAccessible.lastRunOptions';
 
 const DEFAULT_TITLE = 'Claude code Testing';
+let currentSessionTitle = DEFAULT_TITLE;
 
 // The open question currently awaiting an answer (user_question), if any.
 let pendingQuestion = null;
@@ -47,6 +51,31 @@ function getRunOptions () {
 		effort: document.getElementById('effortSelect').value,
 		permissionMode: document.getElementById('permissionModeSelect').value,
 	};
+}
+
+function applyRunOptions (options) {
+	if (!options) return;
+	if (options.model) document.getElementById('modelSelect').value = options.model;
+	if (options.effort) document.getElementById('effortSelect').value = options.effort;
+	if (options.permissionMode) document.getElementById('permissionModeSelect').value = options.permissionMode;
+}
+
+// Remembers model/effort/permission-mode per session (so reopening a session
+// restores what was last used there), and also as a standalone "last used"
+// fallback for brand new sessions — `claude` itself has no notion of a
+// per-session default to inherit instead.
+function saveRunOptionsForSession (sessionId, options) {
+	if (sessionId) localStorage.setItem(RUN_OPTIONS_PREFIX + sessionId, JSON.stringify(options));
+	localStorage.setItem(LAST_RUN_OPTIONS_KEY, JSON.stringify(options));
+}
+
+function loadRunOptionsForSession (sessionId) {
+	try {
+		let raw = sessionId ? localStorage.getItem(RUN_OPTIONS_PREFIX + sessionId) : localStorage.getItem(LAST_RUN_OPTIONS_KEY);
+		return raw ? JSON.parse(raw) : null;
+	} catch {
+		return null;
+	}
 }
 
 const PREVIEW_WORD_COUNT = 12;
@@ -90,6 +119,28 @@ function updatePaginationControls () {
 	document.getElementById('lastPageButton').disabled = currentPage >= pages;
 }
 
+async function copyTextToClipboard (text) {
+	try {
+		await navigator.clipboard.writeText(text);
+		setStatus('Copié dans le presse-papiers.');
+	} catch {
+		setStatus('Échec de la copie dans le presse-papiers.');
+	}
+}
+
+// Per-message options (currently just "Copier", copying the original markdown
+// text, not any rendered HTML) — only offered for actual conversation turns
+// ("Vous dites" / "Claude a répondu"), not for tool-use or error entries.
+function buildMessageOptions (text) {
+	let details = document.createElement('details');
+	details.appendChild(create('summary', 'Options pour ce message'));
+	let copyButton = create('button', 'Copier');
+	copyButton.type = 'button';
+	copyButton.addEventListener('click', () => copyTextToClipboard(text));
+	details.appendChild(copyButton);
+	return details;
+}
+
 // Re-renders only the message groups of the current page. Each group is its
 // own H2 (heading text: "<prefix>: <preview of the first message>"), so JAWS
 // users can navigate group-to-group with heading-navigation keys, followed by
@@ -102,7 +153,11 @@ function renderMessages () {
 	messageArea.textContent = '';
 	for (let group of messages.slice(start, start + PAGE_SIZE)) {
 		messageArea.appendChild(create('h2', `${group.prefix}: ${previewText(group.texts[0])}`));
-		for (let text of group.texts) messageArea.appendChild(create('p', text));
+		let isConversationTurn = group.prefix === 'Vous dites' || group.prefix === 'Claude a répondu';
+		for (let text of group.texts) {
+			messageArea.appendChild(create('p', text));
+			if (isConversationTurn) messageArea.appendChild(buildMessageOptions(text));
+		}
 	}
 	updatePaginationControls();
 }
@@ -144,8 +199,62 @@ function setStatus (text) {
 }
 
 function setSessionTitle (title) {
+	currentSessionTitle = title;
 	document.title = title;
 	document.getElementById('sessionTitle').textContent = title;
+}
+
+// All message texts (every group, every kind — a full raw dump of the log,
+// not just the current page) joined with a "---" separator, for the
+// copy/export-whole-session options below.
+function buildSessionMarkdown () {
+	return messages.flatMap(group => group.texts).join('\n\n---\n\n');
+}
+
+function exportSessionMarkdown () {
+	let blob = new Blob([buildSessionMarkdown()], { type: 'text/markdown' });
+	let url = URL.createObjectURL(blob);
+	let link = document.createElement('a');
+	link.href = url;
+	link.download = `${(currentSessionTitle || 'session').replace(/[\\/:*?"<>|]+/g, '_')}.md`;
+	link.click();
+	URL.revokeObjectURL(url);
+}
+
+// Options for the session as a whole, shown before the message log. Renommer/
+// Dupliquer reuse the same actions as the session list's own options;
+// Copier/Exporter work on the in-memory log directly, so they're available
+// even for a brand new, not-yet-saved session.
+function renderSessionOptions () {
+	let container = document.getElementById('sessionOptionsArea');
+	container.textContent = '';
+
+	let details = document.createElement('details');
+	details.appendChild(create('summary', 'Options pour la session en cours'));
+
+	let renameButton = create('button', 'Renommer');
+	renameButton.type = 'button';
+	renameButton.disabled = !currentSessionId;
+	renameButton.addEventListener('click', () => renameSession(currentSessionId, currentSessionTitle));
+
+	let duplicateButton = create('button', 'Dupliquer');
+	duplicateButton.type = 'button';
+	duplicateButton.disabled = !currentSessionId;
+	duplicateButton.addEventListener('click', () => duplicateSessionAction(currentSessionId));
+
+	let copyButton = create('button', 'Copier toute la session');
+	copyButton.type = 'button';
+	copyButton.addEventListener('click', () => copyTextToClipboard(buildSessionMarkdown()));
+
+	let exportButton = create('button', 'Exporter toute la session');
+	exportButton.type = 'button';
+	exportButton.addEventListener('click', exportSessionMarkdown);
+
+	details.appendChild(renameButton);
+	details.appendChild(duplicateButton);
+	details.appendChild(copyButton);
+	details.appendChild(exportButton);
+	container.appendChild(details);
 }
 
 function suggestPrompt (suggestion) {
@@ -398,6 +507,8 @@ function onServerMessage (message) {
 	if (message.session_id) {
 		currentSessionId = message.session_id;
 		localStorage.setItem(LAST_SESSION_KEY, currentSessionId);
+		saveRunOptionsForSession(currentSessionId, getRunOptions());
+		renderSessionOptions();
 	}
 
 	if (message.type === 'assistant') cacheToolUse(message);
@@ -492,6 +603,8 @@ function startNewSession () {
 	setSessionTitle(DEFAULT_TITLE);
 	localStorage.removeItem(LAST_SESSION_KEY);
 	updateSessionAriaCurrent();
+	applyRunOptions(loadRunOptionsForSession(null));
+	renderSessionOptions();
 }
 
 // Groups consecutive messages of the same role, same as appendMessage does
@@ -521,6 +634,8 @@ async function resumeSession (sessionId) {
 	renderMessages();
 	localStorage.setItem(LAST_SESSION_KEY, sessionId);
 	updateSessionAriaCurrent();
+	applyRunOptions(loadRunOptionsForSession(sessionId) || loadRunOptionsForSession(null));
+	renderSessionOptions();
 }
 
 // Prompts for a new title via the shared input dialog, persists it (as a
@@ -677,8 +792,32 @@ function updateWorkspaceAriaCurrent () {
 	}
 }
 
+function normalizeWorkspacePath (workspacePath) {
+	return workspacePath.replace(/[\\/]+$/, '').toLowerCase();
+}
+
+function loadExtraWorkspaces () {
+	try {
+		return JSON.parse(localStorage.getItem(EXTRA_WORKSPACES_KEY)) || [];
+	} catch {
+		return [];
+	}
+}
+
+function saveExtraWorkspaces (paths) {
+	localStorage.setItem(EXTRA_WORKSPACES_KEY, JSON.stringify(paths));
+}
+
 async function loadWorkspaces () {
-	workspaces = await fetchProjects();
+	let serverWorkspaces = await fetchProjects();
+	// Workspaces added manually via "Ajouter un espace de travail" that
+	// `claude` doesn't know about yet (no session run there so far) — kept
+	// client-side, and dropped from here automatically once the server list
+	// picks them up for real.
+	let extraPaths = loadExtraWorkspaces()
+		.filter(path => !serverWorkspaces.some(workspace => normalizeWorkspacePath(workspace.path) === normalizeWorkspacePath(path)));
+	workspaces = [...serverWorkspaces, ...extraPaths.map(path => ({ path }))];
+
 	let container = document.getElementById('workspaceList');
 	container.textContent = '';
 	for (let workspace of workspaces) {
@@ -711,10 +850,98 @@ async function selectWorkspace (workspacePath) {
 	await loadSessionList();
 }
 
-// Placeholder: will open a folder-picker popup to add a new workspace not
-// already known to `claude` — left as a stub for now (to discuss).
-function onAddWorkspaceClick () {
-	setStatus('Ajout d’un espace de travail : pas encore implémenté.');
+// Server-side native folder browser (see server.js /api/pick-folder) — only
+// possible because this app is always self-hosted on the same machine as the
+// browser using it. Resolves to the picked path, or null if cancelled.
+async function pickFolderNative () {
+	let response = await fetch('/api/pick-folder', { method: 'POST' });
+	if (!response.ok) return null;
+	let data = await response.json();
+	return data.path || null;
+}
+
+// Reuses questionArea for a manual-path entry dialog, with a "Choisir un
+// dossier" button between the field and OK that triggers the native picker:
+// picking a folder there validates the dialog immediately (as if OK had been
+// clicked), and cancelling it closes the dialog immediately (as if Annuler
+// had been clicked) — no extra confirmation click needed either way.
+function showAddWorkspaceDialog () {
+	return new Promise(resolve => {
+		let dialog = document.getElementById('questionArea');
+		dialog.textContent = '';
+		dialog.oncancel = null;
+
+		function finish (value) {
+			dialog.textContent = '';
+			if (dialog.open) dialog.close();
+			resolve(value);
+		}
+
+		let closeButton = create('button', 'Fermer');
+		closeButton.type = 'button';
+		closeButton.addEventListener('click', () => finish(null));
+		dialog.appendChild(closeButton);
+		dialog.appendChild(create('h2', 'Ajouter un espace de travail'));
+
+		let form = document.createElement('form');
+		let fieldId = 'workspacePathField';
+		let label = create('label', 'Chemin du dossier :');
+		label.setAttribute('for', fieldId);
+		let field = document.createElement('input');
+		field.type = 'text';
+		field.id = fieldId;
+
+		let pickButton = create('button', 'Choisir un dossier');
+		pickButton.type = 'button';
+		pickButton.addEventListener('click', async () => {
+			pickButton.disabled = true;
+			let picked = await pickFolderNative();
+			pickButton.disabled = false;
+			if (picked) finish(picked);
+			else finish(null);
+		});
+
+		let okButton = create('button', 'OK');
+		okButton.type = 'submit';
+		let cancelButton = create('button', 'Annuler');
+		cancelButton.type = 'button';
+		cancelButton.addEventListener('click', () => finish(null));
+
+		form.appendChild(label);
+		form.appendChild(field);
+		form.appendChild(pickButton);
+		form.appendChild(okButton);
+		form.appendChild(cancelButton);
+		form.addEventListener('submit', event => {
+			event.preventDefault();
+			finish(field.value.trim() || null);
+		});
+		dialog.appendChild(form);
+
+		dialog.addEventListener('cancel', () => finish(null), { once: true });
+		dialog.showModal();
+		field.focus();
+	});
+}
+
+async function onAddWorkspaceClick () {
+	let workspacePath = await showAddWorkspaceDialog();
+	if (!workspacePath) return;
+
+	// Already known (typed or picked a path that matches an existing entry,
+	// possibly under a different name/casing/trailing slash): just switch to
+	// it rather than adding a redundant duplicate entry.
+	let existing = workspaces.find(w => normalizeWorkspacePath(w.path) === normalizeWorkspacePath(workspacePath));
+	if (existing) {
+		await selectWorkspace(existing.path);
+		return;
+	}
+
+	let extra = loadExtraWorkspaces();
+	extra.push(workspacePath);
+	saveExtraWorkspaces(extra);
+	await loadWorkspaces();
+	await selectWorkspace(workspacePath);
 }
 
 // Restores the last-used workspace and session (if still known/available) so
@@ -766,6 +993,7 @@ function onWindowLoad () {
 
 	loadWorkspaces().then(restoreLastState);
 	renderMessages();
+	renderSessionOptions();
 }
 
 window.addEventListener('load', onWindowLoad);
