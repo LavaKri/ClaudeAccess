@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
-import { listProjects, listSessions, loadSession, setCustomTitle } from './history.js';
+import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession } from './history.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +52,18 @@ app.put('/api/sessions/:sessionId/title', async (req, res) => {
 	}
 	await setCustomTitle(cwd, req.params.sessionId, title);
 	res.json({ ok: true });
+});
+
+app.delete('/api/sessions/:sessionId', async (req, res) => {
+	let cwd = String(req.query.cwd || process.cwd());
+	await deleteSession(cwd, req.params.sessionId);
+	res.json({ ok: true });
+});
+
+app.post('/api/sessions/:sessionId/duplicate', async (req, res) => {
+	let cwd = String(req.query.cwd || process.cwd());
+	let newSessionId = await duplicateSession(cwd, req.params.sessionId);
+	res.json({ sessionId: newSessionId });
 });
 
 const server = http.createServer(app);

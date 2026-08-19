@@ -1,6 +1,6 @@
-// Thin wrappers around the server's read-only REST endpoints, which just
-// expose what Claude Code already persists on disk (see plan.md) — no
-// storage of our own.
+// Thin wrappers around the server's REST endpoints, which just read and write
+// what Claude Code already persists on disk (see plan.md) — no storage of
+// our own.
 
 export async function fetchProjects () {
 	let response = await fetch('/api/projects');
@@ -25,4 +25,19 @@ export async function renameSession (cwd, sessionId, title) {
 		body: JSON.stringify({ title }),
 	});
 	return response.ok;
+}
+
+export async function deleteSession (cwd, sessionId) {
+	let response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}?cwd=${encodeURIComponent(cwd)}`, {
+		method: 'DELETE',
+	});
+	return response.ok;
+}
+
+export async function duplicateSession (cwd, sessionId) {
+	let response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/duplicate?cwd=${encodeURIComponent(cwd)}`, {
+		method: 'POST',
+	});
+	if (!response.ok) return null;
+	return response.json();
 }

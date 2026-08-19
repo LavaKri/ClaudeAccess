@@ -43,3 +43,6 @@ architecture decisions behind it.
 - The `claude` CLI invocation can be swapped for a mock implementation via
   config/env, to allow frontend and protocol work without consuming real
   usage. See `plan.md` step 1 for the mock's scenarios.
+- When manual testing needs a real `claude -p` run (not the mock) and the
+  actual response content doesn't matter, use the cheapest model/effort
+  combination (`sonnet`+`low`, or `haiku`) to minimize usage cost.

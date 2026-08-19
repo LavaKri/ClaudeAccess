@@ -1,6 +1,15 @@
 import { create } from './DOMHelpers.js';
 import { connect, send } from './WsClient.js';
-import { fetchProjects, fetchSessions, fetchSession, renameSession as renameSessionRequest } from './HistoryClient.js';
+import {
+	fetchProjects, fetchSessions, fetchSession,
+	renameSession as renameSessionRequest,
+	deleteSession as deleteSessionRequest,
+	duplicateSession as duplicateSessionRequest,
+} from './HistoryClient.js';
+
+const LAST_WORKSPACE_KEY = 'claudeAccessible.lastWorkspace';
+const LAST_SESSION_KEY = 'claudeAccessible.lastSessionId';
+const WORKSPACE_NAMES_KEY = 'claudeAccessible.workspaceNames';
 
 const DEFAULT_TITLE = 'Claude code Testing';
 
@@ -59,6 +68,9 @@ function previewText (text) {
 // All messages of the current conversation, paginated for display rather than
 // shown as one continuously growing log — a continuously auto-scrolling
 // region is exactly the kind of thing that's hard to use with JAWS.
+// Consecutive messages of the same kind (several "Claude a répondu" in a row,
+// several tool uses in a row...) are grouped under a single heading — each
+// group is one pagination unit, holding one paragraph per message.
 const PAGE_SIZE = 20;
 let messages = [];
 let currentPage = 1;
@@ -78,19 +90,19 @@ function updatePaginationControls () {
 	document.getElementById('lastPageButton').disabled = currentPage >= pages;
 }
 
-// Re-renders only the messages of the current page. Each message is its own
-// H2 (heading text: "<prefix>: <preview>"), so JAWS users can navigate
-// message-to-message with heading-navigation keys, followed by the full text
-// in a paragraph.
+// Re-renders only the message groups of the current page. Each group is its
+// own H2 (heading text: "<prefix>: <preview of the first message>"), so JAWS
+// users can navigate group-to-group with heading-navigation keys, followed by
+// one paragraph per message in that group.
 function renderMessages () {
 	currentPage = Math.min(Math.max(currentPage, 1), pageCount());
 	let start = (currentPage - 1) * PAGE_SIZE;
 
 	let messageArea = document.getElementById('messageArea');
 	messageArea.textContent = '';
-	for (let message of messages.slice(start, start + PAGE_SIZE)) {
-		messageArea.appendChild(create('h2', `${message.prefix}: ${previewText(message.text)}`));
-		messageArea.appendChild(create('p', message.text));
+	for (let group of messages.slice(start, start + PAGE_SIZE)) {
+		messageArea.appendChild(create('h2', `${group.prefix}: ${previewText(group.texts[0])}`));
+		for (let text of group.texts) messageArea.appendChild(create('p', text));
 	}
 	updatePaginationControls();
 }
@@ -101,12 +113,21 @@ function goToPage (page) {
 	setStatus(`Page ${currentPage} sur ${pageCount()}`);
 }
 
-// Adds a message to the log. If the user was already viewing the last page,
-// follows along to the new last page; otherwise leaves their current page
-// alone and just updates the pagination controls (page count).
+// Adds a message to the log, merging it into the previous group when it's the
+// same kind (prefix) as the one right before it, and silently dropping it
+// when it's an exact repeat of the last message in that group — which is what
+// happens when a tool retried after a permission grant reports the exact same
+// tool_use again. If the user was already viewing the last page, follows
+// along to the new last page; otherwise leaves their current page alone.
 function appendMessage (prefix, text) {
+	let lastGroup = messages[messages.length - 1];
+	let mergingIntoLast = Boolean(lastGroup) && lastGroup.prefix === prefix;
+	if (mergingIntoLast && lastGroup.texts[lastGroup.texts.length - 1] === text) return;
+
 	let wasOnLastPage = currentPage >= pageCount();
-	messages.push({ prefix, text });
+	if (mergingIntoLast) lastGroup.texts.push(text);
+	else messages.push({ prefix, texts: [text] });
+
 	if (wasOnLastPage) {
 		currentPage = pageCount();
 		renderMessages();
@@ -225,6 +246,42 @@ function showInputDialog (title, message, defaultValue = '') {
 	});
 }
 
+// Reusable modal confirm flow: shows a title, a message, and Confirmer/
+// Annuler/Fermer. Resolves with true only if Confirmer was clicked.
+function showConfirmDialog (title, message) {
+	return new Promise(resolve => {
+		let dialog = document.getElementById('questionArea');
+		dialog.textContent = '';
+		dialog.oncancel = null;
+
+		function finish (value) {
+			dialog.textContent = '';
+			if (dialog.open) dialog.close();
+			resolve(value);
+		}
+
+		let closeButton = create('button', 'Fermer');
+		closeButton.type = 'button';
+		closeButton.addEventListener('click', () => finish(false));
+		dialog.appendChild(closeButton);
+		dialog.appendChild(create('h2', title));
+		dialog.appendChild(create('p', message));
+
+		let confirmButton = create('button', 'Confirmer');
+		confirmButton.type = 'button';
+		confirmButton.addEventListener('click', () => finish(true));
+		let cancelButton = create('button', 'Annuler');
+		cancelButton.type = 'button';
+		cancelButton.addEventListener('click', () => finish(false));
+		dialog.appendChild(confirmButton);
+		dialog.appendChild(cancelButton);
+
+		dialog.addEventListener('cancel', () => finish(false), { once: true });
+		dialog.showModal();
+		confirmButton.focus();
+	});
+}
+
 async function answerUserQuestion (optionId) {
 	let question = pendingQuestion;
 	hideQuestion();
@@ -248,15 +305,29 @@ function showUserQuestion (message) {
 	document.getElementById('abortButton').disabled = false;
 }
 
+// Describes a tool's input in plain language rather than raw JSON — "bash"
+// and its "command" input are the only shape confirmed so far (see the mock),
+// so that's the one special-cased; anything else falls back to the tool name
+// alone (no JSON fragment shown to the user).
+function describeToolAction (input) {
+	if (input && typeof input.command === 'string') return `commande : ${input.command}`;
+	return '';
+}
+
 // Permission requests are a closed question (allow-once / always-allow / deny):
 // only the option buttons answer, the prompt field stays unavailable. Unlike
 // user_question, there's no live pause on the CLI side — see plan.md: an
 // unauthorized tool just comes back denied, and "allowing" it means starting
 // a new --resume run with the tool added to --allowed-tools.
-function showToolPermissionRequest (toolName, toolUseId) {
+function showToolPermissionRequest (toolName, toolInput, toolUseId) {
 	awaitingToolPermission = { toolName, toolUseId };
 
-	renderQuestion(`claude veut utiliser l'outil "${toolName}". Autoriser ?`, [
+	let detail = describeToolAction(toolInput);
+	let text = detail
+		? `Claude aimerait utiliser l'outil ${toolName} avec la ${detail}`
+		: `Claude veut utiliser l'outil "${toolName}". Autoriser ?`;
+
+	renderQuestion(text, [
 		{ label: 'Autoriser une fois', onClick: () => resumeWithToolAllowed(toolName, false) },
 		{ label: 'Toujours autoriser', onClick: () => resumeWithToolAllowed(toolName, true) },
 		{ label: 'Refuser', onClick: denyToolPermission },
@@ -293,7 +364,8 @@ function cacheToolUse (message) {
 	for (let item of message.message?.content ?? []) {
 		if (item.type === 'tool_use') {
 			toolUseCache.set(item.id, { name: item.name, input: item.input });
-			appendMessage('Utilisation de l\'outil', `${item.name} ${JSON.stringify(item.input)}`);
+			let detail = describeToolAction(item.input);
+			appendMessage('Outil', detail ? `${item.name}, ${detail}` : item.name);
 		}
 	}
 }
@@ -304,7 +376,7 @@ function handleIfToolDenied (message) {
 	for (let item of message.message?.content ?? []) {
 		if (item.type === 'tool_result' && item.is_error) {
 			let toolInfo = toolUseCache.get(item.tool_use_id);
-			showToolPermissionRequest(toolInfo?.name ?? 'Tool', item.tool_use_id);
+			showToolPermissionRequest(toolInfo?.name ?? 'Tool', toolInfo?.input, item.tool_use_id);
 			send({ type: 'abort' });
 			return true;
 		}
@@ -323,7 +395,10 @@ async function fetchFreshTitle () {
 }
 
 function onServerMessage (message) {
-	if (message.session_id) currentSessionId = message.session_id;
+	if (message.session_id) {
+		currentSessionId = message.session_id;
+		localStorage.setItem(LAST_SESSION_KEY, currentSessionId);
+	}
 
 	if (message.type === 'assistant') cacheToolUse(message);
 	if (message.type === 'user' && handleIfToolDenied(message)) return;
@@ -415,6 +490,21 @@ function startNewSession () {
 	allowedTools = [];
 	awaitingFreshTitle = false;
 	setSessionTitle(DEFAULT_TITLE);
+	localStorage.removeItem(LAST_SESSION_KEY);
+	updateSessionAriaCurrent();
+}
+
+// Groups consecutive messages of the same role, same as appendMessage does
+// for the live stream, so a resumed history reads the same way.
+function groupMessages (rawMessages) {
+	let groups = [];
+	for (let message of rawMessages) {
+		let prefix = message.role === 'user' ? 'Vous dites' : 'Claude a répondu';
+		let last = groups[groups.length - 1];
+		if (last && last.prefix === prefix) last.texts.push(message.text);
+		else groups.push({ prefix, texts: [message.text] });
+	}
+	return groups;
 }
 
 async function resumeSession (sessionId) {
@@ -426,12 +516,11 @@ async function resumeSession (sessionId) {
 	allowedTools = [];
 	awaitingFreshTitle = false;
 	setSessionTitle(session.title);
-	messages = session.messages.map(message => ({
-		prefix: message.role === 'user' ? 'Vous dites' : 'Claude a répondu',
-		text: message.text,
-	}));
+	messages = groupMessages(session.messages);
 	currentPage = pageCount();
 	renderMessages();
+	localStorage.setItem(LAST_SESSION_KEY, sessionId);
+	updateSessionAriaCurrent();
 }
 
 // Prompts for a new title via the shared input dialog, persists it (as a
@@ -452,11 +541,50 @@ async function renameSession (sessionId, currentTitle) {
 	await loadSessionList();
 }
 
-async function loadSessionList () {
-	let sessions = await fetchSessions(currentCwd);
+async function duplicateSessionAction (sessionId) {
+	let result = await duplicateSessionRequest(currentCwd, sessionId);
+	if (!result) {
+		setStatus('Échec de la duplication de la session.');
+		return;
+	}
+	await loadSessionList();
+}
+
+async function deleteSessionAction (sessionId, title) {
+	let confirmed = await showConfirmDialog(
+		'Supprimer la session',
+		`Supprimer définitivement la session « ${title} » ? Cette action est irréversible.`,
+	);
+	if (!confirmed) return;
+
+	let ok = await deleteSessionRequest(currentCwd, sessionId);
+	if (!ok) {
+		setStatus('Échec de la suppression de la session.');
+		return;
+	}
+	if (sessionId === currentSessionId) startNewSession();
+	await loadSessionList();
+}
+
+function updateSessionAriaCurrent () {
+	for (let button of document.querySelectorAll('#sessionList button[data-session-id]')) {
+		if (button.dataset.sessionId === currentSessionId) button.setAttribute('aria-current', 'true');
+		else button.removeAttribute('aria-current');
+	}
+}
+
+// Sessions are fetched once (already sorted newest-first by the server, see
+// history.js) and paginated client-side with simple older/newer buttons —
+// no page-number input needed here, unlike the message log.
+const SESSIONS_PAGE_SIZE = 10;
+let allSessions = [];
+let sessionsPage = 0;
+
+function renderSessionPage () {
 	let list = document.getElementById('sessionList');
 	list.textContent = '';
-	for (let session of sessions) {
+	let start = sessionsPage * SESSIONS_PAGE_SIZE;
+	for (let session of allSessions.slice(start, start + SESSIONS_PAGE_SIZE)) {
 		// Comma-separated, locale-formatted date (browser's own locale/regional
 		// settings — no hardcoded format) rather than parentheses, for clearer
 		// screen reader phrasing.
@@ -465,31 +593,88 @@ async function loadSessionList () {
 			: session.title;
 		let button = create('button', label);
 		button.type = 'button';
+		button.dataset.sessionId = session.sessionId;
+		if (session.sessionId === currentSessionId) button.setAttribute('aria-current', 'true');
 		button.addEventListener('click', () => resumeSession(session.sessionId));
 
-		// Collapsed by default: keeps per-session actions (rename today, delete/
-		// archive later) out of the way without needing a separate screen.
+		// Collapsed by default: keeps per-session actions out of the way without
+		// needing a separate screen.
 		let details = document.createElement('details');
 		details.appendChild(create('summary', `Options pour ${session.title}`));
 		let renameButton = create('button', 'Renommer');
 		renameButton.type = 'button';
 		renameButton.addEventListener('click', () => renameSession(session.sessionId, session.title));
+		let duplicateButton = create('button', 'Dupliquer');
+		duplicateButton.type = 'button';
+		duplicateButton.addEventListener('click', () => duplicateSessionAction(session.sessionId));
+		let deleteButton = create('button', 'Supprimer');
+		deleteButton.type = 'button';
+		deleteButton.addEventListener('click', () => deleteSessionAction(session.sessionId, session.title));
 		details.appendChild(renameButton);
+		details.appendChild(duplicateButton);
+		details.appendChild(deleteButton);
 
 		let item = document.createElement('li');
 		item.appendChild(button);
 		item.appendChild(details);
 		list.appendChild(item);
 	}
+
+	document.getElementById('newerSessionsButton').disabled = sessionsPage <= 0;
+	document.getElementById('olderSessionsButton').disabled = start + SESSIONS_PAGE_SIZE >= allSessions.length;
 }
 
-// Renders one button per known workspace, labeled with only the last path
-// segment (a `<label>`/`<select>` or a text input with a full path read out
-// isn't as easy to scan with a screen reader) — the full path is kept as a
-// title attribute (tooltip) and used as the actual cwd on click.
+function goToSessionsPage (page) {
+	sessionsPage = Math.max(0, page);
+	renderSessionPage();
+}
+
+async function loadSessionList () {
+	allSessions = await fetchSessions(currentCwd);
+	sessionsPage = 0;
+	renderSessionPage();
+}
+
+function loadWorkspaceNames () {
+	try {
+		return JSON.parse(localStorage.getItem(WORKSPACE_NAMES_KEY)) || {};
+	} catch {
+		return {};
+	}
+}
+
+function saveWorkspaceNames (names) {
+	localStorage.setItem(WORKSPACE_NAMES_KEY, JSON.stringify(names));
+}
+
+// Labeled with only the last path segment by default (a `<label>`/`<select>`
+// or a text input with a full path read out isn't as easy to scan with a
+// screen reader), or a custom name if the user renamed it — the full path is
+// kept as a title attribute (tooltip) and used as the actual cwd on click.
 function workspaceLabel (workspacePath) {
+	let customName = loadWorkspaceNames()[workspacePath];
+	if (customName) return customName;
 	let segments = workspacePath.split(/[\\/]+/).filter(Boolean);
 	return segments[segments.length - 1] || workspacePath;
+}
+
+async function renameWorkspace (workspacePath) {
+	let newName = await showInputDialog('Renommer l\'espace de travail', 'Nouveau nom :', workspaceLabel(workspacePath));
+	if (newName === null) return;
+	newName = newName.trim();
+	if (!newName) return;
+
+	let names = loadWorkspaceNames();
+	names[workspacePath] = newName;
+	saveWorkspaceNames(names);
+	await loadWorkspaces();
+}
+
+function updateWorkspaceAriaCurrent () {
+	for (let button of document.querySelectorAll('#workspaceList button[data-workspace-path]')) {
+		if (button.dataset.workspacePath === currentCwd) button.setAttribute('aria-current', 'true');
+		else button.removeAttribute('aria-current');
+	}
 }
 
 async function loadWorkspaces () {
@@ -500,14 +685,29 @@ async function loadWorkspaces () {
 		let button = create('button', workspaceLabel(workspace.path));
 		button.type = 'button';
 		button.title = workspace.path;
+		button.dataset.workspacePath = workspace.path;
+		if (workspace.path === currentCwd) button.setAttribute('aria-current', 'true');
 		button.addEventListener('click', () => selectWorkspace(workspace.path));
-		container.appendChild(button);
+
+		let details = document.createElement('details');
+		details.appendChild(create('summary', `Options pour ${workspaceLabel(workspace.path)}`));
+		let renameButton = create('button', 'Renommer');
+		renameButton.type = 'button';
+		renameButton.addEventListener('click', () => renameWorkspace(workspace.path));
+		details.appendChild(renameButton);
+
+		let item = document.createElement('li');
+		item.appendChild(button);
+		item.appendChild(details);
+		container.appendChild(item);
 	}
 }
 
 async function selectWorkspace (workspacePath) {
 	currentCwd = workspacePath;
 	startNewSession();
+	localStorage.setItem(LAST_WORKSPACE_KEY, workspacePath);
+	updateWorkspaceAriaCurrent();
 	await loadSessionList();
 }
 
@@ -515,6 +715,26 @@ async function selectWorkspace (workspacePath) {
 // already known to `claude` — left as a stub for now (to discuss).
 function onAddWorkspaceClick () {
 	setStatus('Ajout d’un espace de travail : pas encore implémenté.');
+}
+
+// Restores the last-used workspace and session (if still known/available) so
+// reopening the app picks up where the user left off, rather than always
+// starting blank.
+async function restoreLastState () {
+	let lastWorkspace = localStorage.getItem(LAST_WORKSPACE_KEY);
+	if (!lastWorkspace || !workspaces.some(workspace => workspace.path === lastWorkspace)) {
+		await loadSessionList();
+		return;
+	}
+
+	currentCwd = lastWorkspace;
+	updateWorkspaceAriaCurrent();
+	await loadSessionList();
+
+	let lastSessionId = localStorage.getItem(LAST_SESSION_KEY);
+	if (lastSessionId && allSessions.some(session => session.sessionId === lastSessionId)) {
+		await resumeSession(lastSessionId);
+	}
 }
 
 function onWindowLoad () {
@@ -535,14 +755,16 @@ function onWindowLoad () {
 	let refreshSessionsButton = document.getElementById('refreshSessionsButton');
 	refreshSessionsButton.addEventListener('click', loadSessionList);
 
+	document.getElementById('newerSessionsButton').addEventListener('click', () => goToSessionsPage(sessionsPage - 1));
+	document.getElementById('olderSessionsButton').addEventListener('click', () => goToSessionsPage(sessionsPage + 1));
+
 	document.getElementById('firstPageButton').addEventListener('click', () => goToPage(1));
 	document.getElementById('prevPageButton').addEventListener('click', () => goToPage(currentPage - 1));
 	document.getElementById('nextPageButton').addEventListener('click', () => goToPage(currentPage + 1));
 	document.getElementById('lastPageButton').addEventListener('click', () => goToPage(pageCount()));
 	document.getElementById('pageInput').addEventListener('change', event => goToPage(Number(event.target.value)));
 
-	loadWorkspaces();
-	loadSessionList();
+	loadWorkspaces().then(restoreLastState);
 	renderMessages();
 }
 

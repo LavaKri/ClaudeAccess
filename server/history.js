@@ -6,6 +6,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 const CONFIG_PATH = path.join(os.homedir(), '.claude.json');
@@ -152,4 +153,19 @@ export async function setCustomTitle (cwd, sessionId, title) {
 	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
 	let filePath = path.join(dir, `${sessionId}.jsonl`);
 	await fs.appendFile(filePath, JSON.stringify({ type: 'custom-title', customTitle: title }) + '\n');
+}
+
+export async function deleteSession (cwd, sessionId) {
+	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+	await fs.unlink(path.join(dir, `${sessionId}.jsonl`));
+}
+
+// Copies the session's raw file under a fresh id: a full, independent replay
+// of the same conversation, exactly like continuing it as a new session would
+// look on disk, rather than a shared/linked history.
+export async function duplicateSession (cwd, sessionId) {
+	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+	let newSessionId = randomUUID();
+	await fs.copyFile(path.join(dir, `${sessionId}.jsonl`), path.join(dir, `${newSessionId}.jsonl`));
+	return newSessionId;
 }
