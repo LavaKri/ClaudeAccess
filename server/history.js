@@ -72,6 +72,14 @@ async function readSessionFile (filePath) {
 	let customTitle = '';
 	let messageIds = new Set();
 	let messages = [];
+	// Summed across every assistant entry's own "usage" (confirmed present on
+	// real captured session files: input_tokens/output_tokens per API call —
+	// a single user-visible turn can span several assistant entries when tools
+	// are involved, each billed separately), so a resumed session can show its
+	// real historical total rather than starting back at 0. Cache-related
+	// token fields are deliberately not folded in here, to stay comparable
+	// with the live per-turn counter fed by the stream's plain result.usage.
+	let tokenUsage = { input: 0, output: 0 };
 
 	for (let line of lines) {
 		let entry;
@@ -91,6 +99,11 @@ async function readSessionFile (filePath) {
 		}
 		if (entry.message?.id) messageIds.add(entry.message.id);
 
+		if (entry.type === 'assistant' && entry.message?.usage) {
+			tokenUsage.input += entry.message.usage.input_tokens || 0;
+			tokenUsage.output += entry.message.usage.output_tokens || 0;
+		}
+
 		let text = extractText(entry.message?.content);
 		if (!text) continue;
 		if (entry.type === 'assistant') lastMessagePreview = text.slice(0, 100);
@@ -99,7 +112,7 @@ async function readSessionFile (filePath) {
 
 	return {
 		sessionId, startTime, lastTime, lastMessagePreview, aiTitle, customTitle,
-		messages, messageIds,
+		messages, messageIds, tokenUsage,
 	};
 }
 

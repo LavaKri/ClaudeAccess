@@ -204,6 +204,41 @@ function setSessionTitle (title) {
 	document.getElementById('sessionTitle').textContent = title;
 }
 
+// Token usage, input/output kept separate (useful to know which side is
+// driving cost if usage-based billing ever becomes relevant). For a resumed
+// session, the starting total is recomputed server-side from the session's
+// own file (session.tokenUsage — see history.js) rather than starting back
+// at 0, since the CLI's live stream only ever gives a per-turn figure, not a
+// running total.
+let sessionTokenTotals = { input: 0, output: 0 };
+
+function renderTokenUsage (lastTurn) {
+	let area = document.getElementById('tokenUsageArea');
+	if (!lastTurn && !sessionTokenTotals.input && !sessionTokenTotals.output) {
+		area.textContent = '';
+		return;
+	}
+	let lastTurnText = lastTurn
+		? `Ce tour : ${lastTurn.input} tokens en entrée, ${lastTurn.output} tokens en sortie. `
+		: '';
+	area.textContent = `${lastTurnText}Total de la session : `
+		+ `${sessionTokenTotals.input} tokens en entrée, ${sessionTokenTotals.output} tokens en sortie.`;
+}
+
+function resetTokenUsage (seed) {
+	sessionTokenTotals = { input: seed?.input || 0, output: seed?.output || 0 };
+	renderTokenUsage(null);
+}
+
+function recordTokenUsage (usage) {
+	if (!usage) return;
+	let input = usage.input_tokens ?? 0;
+	let output = usage.output_tokens ?? 0;
+	sessionTokenTotals.input += input;
+	sessionTokenTotals.output += output;
+	renderTokenUsage({ input, output });
+}
+
 // All message texts (every group, every kind — a full raw dump of the log,
 // not just the current page) joined with a "---" separator, for the
 // copy/export-whole-session options below.
@@ -532,6 +567,7 @@ function onServerMessage (message) {
 		hideQuestion();
 		setStatus('Response finished');
 		appendMessage('Claude a répondu', message.result ?? `(${message.subtype})`);
+		recordTokenUsage(message.usage);
 		if (awaitingFreshTitle && message.subtype !== 'aborted') {
 			awaitingFreshTitle = false;
 			fetchFreshTitle();
@@ -605,6 +641,7 @@ function startNewSession () {
 	updateSessionAriaCurrent();
 	applyRunOptions(loadRunOptionsForSession(null));
 	renderSessionOptions();
+	resetTokenUsage();
 }
 
 // Groups consecutive messages of the same role, same as appendMessage does
@@ -636,6 +673,7 @@ async function resumeSession (sessionId) {
 	updateSessionAriaCurrent();
 	applyRunOptions(loadRunOptionsForSession(sessionId) || loadRunOptionsForSession(null));
 	renderSessionOptions();
+	resetTokenUsage(session.tokenUsage);
 }
 
 // Prompts for a new title via the shared input dialog, persists it (as a
