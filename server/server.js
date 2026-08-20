@@ -10,6 +10,13 @@ import { getConfig, updateConfig, parseCliCommand } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Dev-only escape hatch: `npm run start:mock` (or `dev:mock`) runs the
+// server against mock/cli-mock.js instead of the real `claude` CLI, without
+// touching the persisted cliCommand config — useful for frontend/protocol
+// work without consuming real usage. See CLAUDE.md.
+const MOCK_CLI_COMMAND = `node "${path.join(__dirname, '..', 'mock', 'cli-mock.js')}"`;
+const useMockCli = process.argv.includes('--mock');
+
 // host/port come from config (see the options page's "advanced settings");
 // read once at startup since the HTTP/WS listener can't rebind itself live —
 // changing them only takes effect on the next server restart.
@@ -125,16 +132,22 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	connectionState.starting = true;
 
 	let { cliCommand } = await getConfig();
-	let [command, ...baseArgs] = parseCliCommand(cliCommand);
+	let [command, ...baseArgs] = parseCliCommand(useMockCli ? MOCK_CLI_COMMAND : cliCommand);
 	if (!command) {
 		connectionState.starting = false;
 		send(ws, { type: 'error', message: 'No CLI command configured' });
 		return;
 	}
 
+	// `claude`'s actual invocation: prompt as a positional argument right
+	// after -p (confirmed against the real CLI — see CLAUDE.md/plan.md),
+	// --output-format stream-json requires --verbose or the CLI refuses to
+	// start. --allowed-tools kept last since it's a variadic option.
 	let args = [
 		...baseArgs,
-		'--prompt', prompt,
+		'-p', prompt,
+		'--output-format', 'stream-json',
+		'--verbose',
 		'--model', model || 'sonnet',
 		'--effort', effort || 'low',
 		'--permission-mode', permissionMode || 'default',
@@ -142,7 +155,11 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	if (sessionId) args.push('--resume', sessionId);
 	if (allowedTools?.length) args.push('--allowed-tools', allowedTools.join(','));
 
-	let child = spawn(command, args, { cwd: cwd || process.cwd() });
+	// stdin explicitly ignored: nothing is ever written to it, and leaving it
+	// as an open pipe makes the real `claude` binary wait a few seconds for
+	// input before proceeding, emitting a stderr warning in the meantime that
+	// this server would otherwise surface to the client as a spurious error.
+	let child = spawn(command, args, { cwd: cwd || process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
 	connectionState.starting = false;
 	connectionState.activeChild = child;
 

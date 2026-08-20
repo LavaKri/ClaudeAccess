@@ -1,7 +1,8 @@
-// Standalone mock of `claude -p --output-format=stream-json --include-partial-messages`.
+// Standalone mock of `claude -p <prompt> --output-format stream-json --verbose`.
 // Emits one JSON object per line on stdout, shaped after a real captured stream
 // (see plan.md step 1), so the server/frontend can be developed without spending
-// real usage. Swap for the real `claude` binary once the pipeline is stable.
+// real usage. Run via `npm run start:mock` / `dev:mock` instead of the real
+// `claude` binary — see server.js's --mock handling.
 //
 // Permission handling follows the pattern confirmed by reading claude-code-webui
 // (see plan.md): there is no live pause/resume within a single run. An
@@ -20,12 +21,18 @@ const CANNED_RESPONSES = [
 function parseArgs (argv) {
 	let args = { prompt: '', model: 'sonnet', effort: 'medium', permissionMode: 'default', resume: '', allowedTools: [] };
 	for (let i = 0; i < argv.length; i++) {
-		if (argv[i] === '--prompt') args.prompt = argv[++i] ?? '';
-		else if (argv[i] === '--model') args.model = argv[++i] ?? args.model;
-		else if (argv[i] === '--effort') args.effort = argv[++i] ?? args.effort;
-		else if (argv[i] === '--permission-mode') args.permissionMode = argv[++i] ?? args.permissionMode;
-		else if (argv[i] === '--resume') args.resume = argv[++i] ?? '';
-		else if (argv[i] === '--allowed-tools') args.allowedTools = (argv[++i] ?? '').split(',').filter(Boolean);
+		let arg = argv[i];
+		// Real `claude` takes the prompt as a plain positional argument — the
+		// server always places it right after -p (see server.js), so that's
+		// the one case handled here rather than matching any bare token.
+		if ((arg === '-p' || arg === '--print') && argv[i + 1] && !argv[i + 1].startsWith('--')) args.prompt = argv[++i];
+		else if (arg === '--model') args.model = argv[++i] ?? args.model;
+		else if (arg === '--effort') args.effort = argv[++i] ?? args.effort;
+		else if (arg === '--permission-mode') args.permissionMode = argv[++i] ?? args.permissionMode;
+		else if (arg === '--resume') args.resume = argv[++i] ?? '';
+		else if (arg === '--allowed-tools' || arg === '--allowedTools') args.allowedTools = (argv[++i] ?? '').split(',').filter(Boolean);
+		// --output-format/--verbose and anything else: accepted, ignored —
+		// this mock always emits the same stream-json shape regardless.
 	}
 	return args;
 }

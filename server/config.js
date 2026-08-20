@@ -5,9 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = path.join(os.homedir(), '.claude-accessible');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
@@ -21,9 +19,11 @@ const DEFAULTS = {
 	// <parent of claudeHomeDir>/.claude.json. See history.js.
 	claudeHomeDir: path.join(os.homedir(), '.claude'),
 	// Free-form invocation, split into argv with parseCliCommand() below (no
-	// shell involved) — swapping this is how the mock gets enabled/disabled,
-	// and it lets the user tack on any global CLI flags they want.
-	cliCommand: `node "${path.join(__dirname, '..', 'mock', 'cli-mock.js')}"`,
+	// shell involved) — lets the user tack on any global CLI flags they want,
+	// or point this at something else entirely. To develop against the mock
+	// instead of spending real usage, run `npm run start:mock` (or
+	// `dev:mock`) rather than editing this — see server.js's --mock handling.
+	cliCommand: 'claude',
 	messagesPerPage: 20,
 	sessionsPerPage: 10,
 	// '' = auto-detect from the browser's languages at load time.

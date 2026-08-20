@@ -25,9 +25,11 @@ architecture decisions behind it.
 
 ## Commands
 
-- `npm run start` — start the server.
-- `npm run dev` — start the server with `nodemon`, restarting on file
-  changes.
+- `npm run start` — start the server against the real `claude` CLI.
+- `npm run dev` — same, with `nodemon`, restarting on file changes.
+- `npm run start:mock` / `npm run dev:mock` — same, but forced onto
+  `mock/cli-mock.js` instead of the real CLI, regardless of the configured
+  `cliCommand` — for frontend/protocol work without consuming real usage.
 
 ## Conventions
 
@@ -40,9 +42,10 @@ architecture decisions behind it.
   UI change involving dynamic content must consider screen reader behavior
   (`aria-live` regions, focus management, no destructive re-renders of
   content a screen reader is tracking) as part of the change itself.
-- The `claude` CLI invocation can be swapped for a mock implementation via
-  config/env, to allow frontend and protocol work without consuming real
-  usage. See `plan.md` step 1 for the mock's scenarios.
+- The `claude` CLI invocation (`cliCommand` in the app's own config, editable
+  from the options page) defaults to the real `claude` binary. Use
+  `npm run start:mock` / `dev:mock` to force the mock instead, without
+  touching that config. See `plan.md` step 1 for the mock's scenarios.
 - When manual testing needs a real `claude -p` run (not the mock) and the
   actual response content doesn't matter, use the cheapest model/effort
   combination (`sonnet`+`low`, or `haiku`) to minimize usage cost.
