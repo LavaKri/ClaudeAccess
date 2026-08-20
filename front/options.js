@@ -1,4 +1,5 @@
 import { initI18n, t } from './i18n.js';
+import { initTheme, applyTheme } from './theme.js';
 import { fetchConfig, updateConfig } from './ConfigClient.js';
 import { MODELS, EFFORTS, PERMISSION_MODES, populateSelect } from './runOptions.js';
 
@@ -47,6 +48,14 @@ async function populateForm () {
 	document.getElementById('portInput').value = config.port;
 	document.getElementById('cliCommandInput').value = config.cliCommand;
 	document.getElementById('claudeHomeDirInput').value = config.claudeHomeDir;
+
+	applyTheme(config.theme);
+}
+
+// Live preview: the chosen theme applies immediately, before Enregistrer is
+// even clicked, so the user can see the result right away.
+function onThemeChange (event) {
+	applyTheme(event.target.value);
 }
 
 async function onOptionsSubmit (event) {
@@ -90,11 +99,13 @@ function onBackClick () {
 }
 
 async function onWindowLoad () {
+	await initTheme();
 	await initI18n();
 	await populateForm();
 	document.getElementById('optionsForm').addEventListener('submit', onOptionsSubmit);
 	document.getElementById('resetOptionsButton').addEventListener('click', onResetClick);
 	document.getElementById('backButton').addEventListener('click', onBackClick);
+	document.getElementById('themeSelect').addEventListener('change', onThemeChange);
 }
 
 window.addEventListener('load', onWindowLoad);

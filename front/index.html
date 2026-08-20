@@ -1,15 +1,17 @@
 <!DOCTYPE HTML>
 <head>
 <meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-i18n="app.title">Claude Code</title>
+<link rel="stylesheet" href="style.css">
 </head><body>
-<p><a href="options.html" data-i18n="link.options">Options</a></p>
-<section id="workflowArea" aria-labelledby="workflowAreaH2">
+<p id="optionsLinkArea" class="app-header"><a href="options.html" data-i18n="link.options">Options</a></p>
+<section id="workflowArea" class="app-sidebar" aria-labelledby="workflowAreaH2">
 <h2 id="workflowAreaH2" data-i18n="heading.workspace">Espace de travail</h2>
 <ul id="workspaceList"></ul>
 <button type="button" id="addWorkspaceButton" data-i18n="button.addWorkspace">Ajouter un espace de travail...</button>
 </section>
-<section id="sessionsArea" aria-labelledby="sessionsAreaH2">
+<section id="sessionsArea" class="app-sidebar" aria-labelledby="sessionsAreaH2">
 <h2 id="sessionsAreaH2" data-i18n="heading.sessions">Sessions</h2>
 <button type="button" id="newSessionButton" data-i18n="button.newSession">Nouvelle session</button>
 <button type="button" id="refreshSessionsButton" data-i18n="button.refreshSessions">Rafraîchir les sessions</button>
@@ -17,16 +19,16 @@
 <button type="button" id="newerSessionsButton" data-i18n="button.newerSessions">Sessions plus récentes</button>
 <button type="button" id="olderSessionsButton" data-i18n="button.olderSessions">Sessions plus anciennes</button>
 </section>
-<h1 id="sessionTitle" data-i18n="session.defaultTitle">Claude code</h1>
-<div id="statusArea" role="status" aria-live="polite">
+<h1 id="sessionTitle" class="app-main" data-i18n="session.defaultTitle">Claude code</h1>
+<div id="statusArea" class="app-main" role="status" aria-live="polite">
 </div>
-<div id="sessionOptionsArea">
+<div id="sessionOptionsArea" class="app-main">
 </div>
-<div id="tokenUsageArea">
+<div id="tokenUsageArea" class="app-main">
 </div>
-<section id="messageArea" aria-label="Messages" data-i18n-attr="aria-label:aria.messages">
+<section id="messageArea" class="app-main" aria-label="Messages" data-i18n-attr="aria-label:aria.messages">
 </section>
-<div id="paginationArea" role="group" aria-label="Pagination des messages" data-i18n-attr="aria-label:aria.pagination">
+<div id="paginationArea" class="app-main" role="group" aria-label="Pagination des messages" data-i18n-attr="aria-label:aria.pagination">
 <button type="button" id="firstPageButton" data-i18n="button.firstPage">Première page</button>
 <button type="button" id="prevPageButton" data-i18n="button.prevPage">Page précédente</button>
 <label for="pageInput" data-i18n="label.page">Page </label>
@@ -37,7 +39,7 @@
 </div>
 <dialog id="questionArea">
 </dialog>
-<section id="promptArea" aria-labelledby="promptAreaH2">
+<section id="promptArea" class="app-main app-prompt" aria-labelledby="promptAreaH2">
 <h2 id="promptAreaH2" data-i18n="heading.prompt">Prompt</h2>
 <form id="promptForm">
 <label for="prompt" data-i18n="label.prompt">Prompt: </label>
@@ -53,6 +55,6 @@
 <select id="permissionModeSelect" name="permissionMode"></select>
 </div>
 </form>
-</div>
+</section>
 <script type="module" src="index.js"></script>
 </body></html>

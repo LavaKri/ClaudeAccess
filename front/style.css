@@ -1,0 +1,231 @@
+/* Minimal, no-animation stylesheet: layout only gets a sidebar/main split
+   and a bottom-anchored prompt form, colors only get three flat palettes
+   (light/dark/contrast, see theme.js). No shadows, gradients, or
+   transitions — borders carry all the visual separation. */
+
+:root {
+	--color-bg: #f7f7f5;
+	--color-bg-elevated: #ffffff;
+	--color-text: #1f2328;
+	--color-text-secondary: #57606a;
+	--color-border: #d0d7de;
+	--color-accent: #0969da;
+	--color-accent-text: #ffffff;
+	--color-focus: #0969da;
+	--color-danger: #cf222e;
+}
+
+:root[data-theme="dark"] {
+	--color-bg: #1e1f22;
+	--color-bg-elevated: #2a2b2f;
+	--color-text: #e6e6e6;
+	--color-text-secondary: #b0b6bd;
+	--color-border: #4a4d54;
+	--color-accent: #5aa6ff;
+	--color-accent-text: #0b1220;
+	--color-focus: #5aa6ff;
+	--color-danger: #ff7b72;
+}
+
+:root[data-theme="contrast"] {
+	--color-bg: #000000;
+	--color-bg-elevated: #000000;
+	--color-text: #ffffff;
+	--color-text-secondary: #ffffff;
+	--color-border: #ffffff;
+	--color-accent: #ffff00;
+	--color-accent-text: #000000;
+	--color-focus: #ffff00;
+	--color-danger: #ff5555;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html {
+	/* No fixed font-size: respects the browser/OS zoom and text-size
+	   settings, the main lever low-vision users already rely on. */
+	background: var(--color-bg);
+}
+
+body {
+	margin: 0;
+	padding: 1rem;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-family: system-ui, sans-serif;
+	line-height: 1.5;
+	/* Prevents any element (long paths, code blocks) from ever forcing a
+	   page-wide horizontal scrollbar. */
+	overflow-x: hidden;
+}
+
+a {
+	color: var(--color-accent);
+}
+
+h1, h2 {
+	line-height: 1.25;
+}
+
+/* Two-column layout: a sidebar (workspace + sessions) and a main column,
+   built purely from grid-column placement so no wrapper <div> is needed
+   around the existing sections — items keep the source order within their
+   assigned column (CSS Grid's default sparse auto-placement). */
+body {
+	display: grid;
+	grid-template-columns: clamp(180px, 25%, 320px) 1fr;
+	column-gap: 1.5rem;
+	row-gap: 1rem;
+	align-items: start;
+}
+
+.app-header {
+	grid-column: 1 / -1;
+	margin: 0 0 0.5rem 0;
+}
+
+.app-sidebar {
+	grid-column: 1;
+}
+
+.app-main {
+	grid-column: 2;
+	min-width: 0; /* lets long content (paths, code) shrink instead of overflowing the column */
+}
+
+@media (max-width: 45rem) {
+	body {
+		grid-template-columns: 1fr;
+	}
+	.app-sidebar, .app-main {
+		grid-column: 1;
+	}
+}
+
+section, #paginationArea, #questionArea {
+	background: var(--color-bg-elevated);
+	border: 1px solid var(--color-border);
+	border-radius: 0.25rem;
+	padding: 0.75rem 1rem;
+}
+
+#statusArea, #sessionOptionsArea, #tokenUsageArea {
+	color: var(--color-text-secondary);
+}
+
+ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+li {
+	margin: 0.25rem 0;
+}
+
+button, select, input, textarea {
+	font: inherit;
+	color: var(--color-text);
+	background: var(--color-bg-elevated);
+	border: 1px solid var(--color-border);
+	border-radius: 0.25rem;
+	padding: 0.35rem 0.6rem;
+}
+
+button {
+	cursor: pointer;
+	background: var(--color-bg);
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+button[aria-current="true"] {
+	border-color: var(--color-accent);
+	border-width: 2px;
+	font-weight: bold;
+}
+
+:focus-visible {
+	outline: 3px solid var(--color-focus);
+	outline-offset: 2px;
+}
+
+textarea, input[type="text"] {
+	width: 100%;
+	max-width: 100%;
+}
+
+textarea {
+	resize: vertical;
+}
+
+/* Tried position: sticky here to keep the prompt form reachable without
+   scrolling all the way down — dropped it: Chrome mis-positions a
+   sticky-bottom item that's auto-placed in a CSS Grid (it renders "stuck" to
+   the viewport bottom from the very first paint, regardless of scroll
+   position, instead of only once normal-flow scrolling reaches it). Plain
+   flow keeps it correct and still inside the single native scrollbar. */
+.app-prompt {
+	background: var(--color-bg-elevated);
+}
+
+#optionsArea {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem 1rem;
+	align-items: center;
+	margin-top: 0.5rem;
+}
+
+/* Rendered markdown (see index.js's renderMarkdownMessage): keep wide
+   content (code blocks, tables, images) from ever forcing a page-wide
+   horizontal scrollbar — a local scrollbar on the code block itself is the
+   standard, acceptable pattern here. */
+.message-text pre {
+	overflow-x: auto;
+	max-width: 100%;
+}
+
+.message-text img, .message-text table {
+	max-width: 100%;
+}
+
+.message-text table {
+	border-collapse: collapse;
+}
+
+.message-text th, .message-text td {
+	border: 1px solid var(--color-border);
+	padding: 0.25rem 0.5rem;
+}
+
+dialog#questionArea {
+	max-width: 40rem;
+	width: 90vw;
+}
+
+dialog#questionArea::backdrop {
+	background: rgba(0, 0, 0, 0.5);
+}
+
+/* options.html is a simple single-column settings page, not the two-column
+   app shell above. */
+body.options-page {
+	display: block;
+	max-width: 40rem;
+	margin: 0 auto;
+}
+
+body.options-page section {
+	margin-bottom: 1rem;
+}
+
+body.options-page label {
+	display: block;
+	margin-top: 0.5rem;
+}

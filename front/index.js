@@ -1,5 +1,6 @@
 import { create } from './DOMHelpers.js';
 import { initI18n, t } from './i18n.js';
+import { initTheme } from './theme.js';
 import { fetchConfig } from './ConfigClient.js';
 import { MODELS, EFFORTS, PERMISSION_MODES, populateSelect } from './runOptions.js';
 import { connect, send } from './WsClient.js';
@@ -1007,6 +1008,7 @@ async function restoreLastState () {
 }
 
 async function onWindowLoad () {
+	await initTheme();
 	await initI18n();
 
 	let config = await fetchConfig();
