@@ -24,21 +24,27 @@ const EXTRA_WORKSPACES_KEY = 'claudeAccessible.extraWorkspaces';
 const RUN_OPTIONS_PREFIX = 'claudeAccessible.runOptions.';
 const LAST_RUN_OPTIONS_KEY = 'claudeAccessible.lastRunOptions';
 
-// Set from config.completionSound in onWindowLoad.
+// Set from config.completionSound in onWindowLoad — governs both sounds
+// below, no separate toggle per sound.
 let completionSoundEnabled = true;
-// Created lazily (not at module load) and reused across turns, rather than
-// a fresh `new Audio()` each time, so an eager/back-to-back turn restarts
-// the same clip instead of piling up overlapping playbacks.
-let completionAudio = null;
+// One Audio instance per clip, created lazily (not at module load) and
+// reused across turns, rather than a fresh `new Audio()` each time, so a
+// quick back-to-back trigger restarts the same clip instead of piling up
+// overlapping playbacks.
+let audioCache = new Map();
 
-function playCompletionSound () {
+function playSound (fileName) {
 	if (!completionSoundEnabled) return;
-	completionAudio ??= new Audio('notify.mp3');
-	completionAudio.currentTime = 0;
+	let audio = audioCache.get(fileName);
+	if (!audio) {
+		audio = new Audio(fileName);
+		audioCache.set(fileName, audio);
+	}
+	audio.currentTime = 0;
 	// Autoplay can be blocked by the browser (e.g. no user gesture on this
 	// page yet) — non-fatal, the aria-live status text already announces
-	// completion either way.
-	completionAudio.play().catch(() => {});
+	// the same event either way.
+	audio.play().catch(() => {});
 }
 
 // Resolved lazily via t() rather than at module load, since translations
@@ -511,6 +517,7 @@ function showToolPermissionRequest (toolName, toolInput, toolUseId) {
 		{ label: t('button.alwaysAllow'), onClick: () => resumeWithToolAllowed(toolName, true) },
 		{ label: t('button.deny'), onClick: denyToolPermission },
 	]);
+	playSound('ask.mp3');
 
 	setWorking(true);
 }
@@ -596,7 +603,7 @@ function onServerMessage (message) {
 		setWorking(false);
 		hideQuestion();
 		setStatus(t('status.responseFinished'));
-		playCompletionSound();
+		playSound('notify.mp3');
 		appendMessage('claude', message.result ?? `(${message.subtype})`);
 		recordTokenUsage(message.usage);
 		if (awaitingFreshTitle && message.subtype !== 'aborted') {
