@@ -1,5 +1,5 @@
 import { create } from './DOMHelpers.js';
-import { initI18n, t } from './i18n.js';
+import { initI18n, t, getLanguage } from './i18n.js';
 import { initTheme } from './theme.js';
 import { fetchConfig } from './ConfigClient.js';
 import { MODELS, EFFORTS, PERMISSION_MODES, populateSelect } from './runOptions.js';
@@ -251,7 +251,7 @@ function setStatus (text) {
 
 function setSessionTitle (title) {
 	currentSessionTitle = title;
-	document.title = title;
+	document.title = t('page.titleWithSession', { title });
 	document.getElementById('sessionTitle').textContent = title;
 }
 
@@ -694,7 +694,7 @@ async function resumeSession (sessionId) {
 	currentSessionId = session.sessionId;
 	allowedTools = [];
 	awaitingFreshTitle = false;
-	setSessionTitle(session.title);
+	setSessionTitle(session.title || defaultTitle());
 	messages = groupMessages(session.messages);
 	currentPage = pageCount();
 	renderMessages();
@@ -768,12 +768,17 @@ function renderSessionPage () {
 	list.textContent = '';
 	let start = sessionsPage * SESSIONS_PAGE_SIZE;
 	for (let session of allSessions.slice(start, start + SESSIONS_PAGE_SIZE)) {
+		// The server leaves the title empty when Claude Code hasn't generated
+		// one yet (no ai-title/custom-title/preview on disk) rather than
+		// guessing a language-specific placeholder itself — defaultTitle() picks
+		// the current UI language's placeholder here instead.
+		let title = session.title || defaultTitle();
 		// Comma-separated, locale-formatted date (browser's own locale/regional
 		// settings — no hardcoded format) rather than parentheses, for clearer
 		// screen reader phrasing.
 		let label = session.lastTime
-			? `${session.title}, ${new Date(session.lastTime).toLocaleString()}`
-			: session.title;
+			? `${title}, ${new Date(session.lastTime).toLocaleString()}`
+			: title;
 		let button = create('button', label);
 		button.type = 'button';
 		button.dataset.sessionId = session.sessionId;
@@ -783,16 +788,16 @@ function renderSessionPage () {
 		// Collapsed by default: keeps per-session actions out of the way without
 		// needing a separate screen.
 		let details = document.createElement('details');
-		details.appendChild(create('summary', t('details.sessionOptionsFor', { title: session.title })));
+		details.appendChild(create('summary', t('details.sessionOptionsFor', { title })));
 		let renameButton = create('button', t('button.rename'));
 		renameButton.type = 'button';
-		renameButton.addEventListener('click', () => renameSession(session.sessionId, session.title));
+		renameButton.addEventListener('click', () => renameSession(session.sessionId, title));
 		let duplicateButton = create('button', t('button.duplicate'));
 		duplicateButton.type = 'button';
 		duplicateButton.addEventListener('click', () => duplicateSessionAction(session.sessionId));
 		let deleteButton = create('button', t('button.delete'));
 		deleteButton.type = 'button';
-		deleteButton.addEventListener('click', () => deleteSessionAction(session.sessionId, session.title));
+		deleteButton.addEventListener('click', () => deleteSessionAction(session.sessionId, title));
 		details.appendChild(renameButton);
 		details.appendChild(duplicateButton);
 		details.appendChild(deleteButton);
@@ -922,7 +927,7 @@ async function selectWorkspace (workspacePath) {
 // possible because this app is always self-hosted on the same machine as the
 // browser using it. Resolves to the picked path, or null if cancelled.
 async function pickFolderNative () {
-	let response = await fetch('/api/pick-folder', { method: 'POST' });
+	let response = await fetch(`/api/pick-folder?lang=${encodeURIComponent(getLanguage())}`, { method: 'POST' });
 	if (!response.ok) return null;
 	let data = await response.json();
 	return data.path || null;

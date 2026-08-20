@@ -1,4 +1,4 @@
-# ClaudeAccessible
+# ClaudeAccess
 
 A minimal, custom web interface for `claude -p`, built to be fully accessible
 with the JAWS screen reader. It exists to work around accessibility
@@ -37,7 +37,9 @@ architecture decisions behind it.
   keep the project minimal and easy to audit.
 - Documentation (this file, README, code comments) is written in English to
   keep the door open for a future public release. Conversations with the
-  user may happen in French.
+  user may happen in French. `plan.md` is the one exception: kept as
+  informal, French-language internal working notes rather than polished
+  public documentation — see the banner at the top of that file.
 - Accessibility is a first-class constraint, not a final cleanup pass: any
   UI change involving dynamic content must consider screen reader behavior
   (`aria-live` regions, focus management, no destructive re-renders of

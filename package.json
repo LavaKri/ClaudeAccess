@@ -1,8 +1,24 @@
 {
-  "name": "claude-accessible",
+  "name": "claude-access",
   "version": "0.1.0",
   "description": "Accessible web interface for claude -p, built for the JAWS screen reader",
   "private": true,
+  "license": "MIT",
+  "author": "Quentin Cosendey",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/QuentinC/claude-access.git"
+  },
+  "keywords": [
+    "claude-code",
+    "accessibility",
+    "screen-reader",
+    "jaws",
+    "a11y"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "server/server.js",
   "scripts": {

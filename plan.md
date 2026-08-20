@@ -1,3 +1,9 @@
+> Internal working notes, kept in French, not intended as polished public
+> documentation — see CLAUDE.md's Conventions section. Written while
+> designing and building the app; kept for the "why" behind non-obvious
+> decisions (protocol discoveries, things tried and abandoned) rather than
+> as a how-to.
+
 # Plan — Interface web accessible JAWS pour `claude -p`
 
 ## Décisions d'architecture

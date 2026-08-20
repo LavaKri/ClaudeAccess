@@ -1,6 +1,7 @@
 {
-	"app.title": "Claude Code",
-	"session.defaultTitle": "Claude code Testing",
+	"app.title": "{{app}}",
+	"session.defaultTitle": "{{app}}",
+	"page.titleWithSession": "{{app}} : {{title}}",
 
 	"heading.workspace": "Espace de travail",
 	"button.addWorkspace": "Ajouter un espace de travail...",

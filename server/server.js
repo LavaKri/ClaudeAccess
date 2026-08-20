@@ -82,6 +82,15 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
 	res.json({ ok: true });
 });
 
+// Native dialog description text, in the same two languages as front/lang/ —
+// duplicated here rather than shared with those JSON files because this
+// string is baked into a PowerShell script, not rendered through the front
+// end's own i18n runtime. Client passes its current UI language as ?lang=.
+const PICK_FOLDER_DESCRIPTIONS = {
+	en: 'Choose a working folder',
+	fr: 'Choisir un dossier de travail',
+};
+
 // Opens the real Windows folder-browser dialog server-side (this app is
 // always self-hosted on the same machine as the browser using it, so that's
 // fair game — unlike a public web app, which couldn't do this at all: a
@@ -89,10 +98,11 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
 // path). Blocks this one request until the user picks a folder or cancels;
 // resolves to { path: null } on cancel.
 app.post('/api/pick-folder', async (req, res) => {
+	let description = PICK_FOLDER_DESCRIPTIONS[req.query.lang] || PICK_FOLDER_DESCRIPTIONS.en;
 	let script = [
 		'Add-Type -AssemblyName System.Windows.Forms',
 		'$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
-		"$dialog.Description = 'Choisir un dossier de travail'",
+		`$dialog.Description = '${description.replace(/'/g, "''")}'`,
 		'if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }',
 	].join('; ');
 

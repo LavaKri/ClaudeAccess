@@ -2,24 +2,24 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title data-i18n="app.title">Claude Code</title>
+<title data-i18n="app.title">ClaudeAccess</title>
 <link rel="stylesheet" href="style.css">
 </head><body>
 <p id="optionsLinkArea" class="app-header"><a href="options.html" data-i18n="link.options">Options</a></p>
 <section id="workflowArea" class="app-sidebar" aria-labelledby="workflowAreaH2">
-<h2 id="workflowAreaH2" data-i18n="heading.workspace">Espace de travail</h2>
+<h2 id="workflowAreaH2" data-i18n="heading.workspace">Workspace</h2>
 <ul id="workspaceList"></ul>
-<button type="button" id="addWorkspaceButton" data-i18n="button.addWorkspace">Ajouter un espace de travail...</button>
+<button type="button" id="addWorkspaceButton" data-i18n="button.addWorkspace">Add a workspace...</button>
 </section>
 <section id="sessionsArea" class="app-sidebar" aria-labelledby="sessionsAreaH2">
 <h2 id="sessionsAreaH2" data-i18n="heading.sessions">Sessions</h2>
-<button type="button" id="newSessionButton" data-i18n="button.newSession">Nouvelle session</button>
-<button type="button" id="refreshSessionsButton" data-i18n="button.refreshSessions">Rafraîchir les sessions</button>
+<button type="button" id="newSessionButton" data-i18n="button.newSession">New session</button>
+<button type="button" id="refreshSessionsButton" data-i18n="button.refreshSessions">Refresh sessions</button>
 <ul id="sessionList"></ul>
-<button type="button" id="newerSessionsButton" data-i18n="button.newerSessions">Sessions plus récentes</button>
-<button type="button" id="olderSessionsButton" data-i18n="button.olderSessions">Sessions plus anciennes</button>
+<button type="button" id="newerSessionsButton" data-i18n="button.newerSessions">Newer sessions</button>
+<button type="button" id="olderSessionsButton" data-i18n="button.olderSessions">Older sessions</button>
 </section>
-<h1 id="sessionTitle" class="app-main" data-i18n="session.defaultTitle">Claude code</h1>
+<h1 id="sessionTitle" class="app-main" data-i18n="session.defaultTitle">ClaudeAccess</h1>
 <div id="statusArea" class="app-main" role="status" aria-live="polite">
 </div>
 <div id="sessionOptionsArea" class="app-main">
@@ -28,14 +28,14 @@
 </div>
 <section id="messageArea" class="app-main" aria-label="Messages" data-i18n-attr="aria-label:aria.messages">
 </section>
-<div id="paginationArea" class="app-main" role="group" aria-label="Pagination des messages" data-i18n-attr="aria-label:aria.pagination">
-<button type="button" id="firstPageButton" data-i18n="button.firstPage">Première page</button>
-<button type="button" id="prevPageButton" data-i18n="button.prevPage">Page précédente</button>
+<div id="paginationArea" class="app-main" role="group" aria-label="Message pagination" data-i18n-attr="aria-label:aria.pagination">
+<button type="button" id="firstPageButton" data-i18n="button.firstPage">First page</button>
+<button type="button" id="prevPageButton" data-i18n="button.prevPage">Previous page</button>
 <label for="pageInput" data-i18n="label.page">Page </label>
 <input type="number" id="pageInput" min="1" value="1" size="4">
-<span id="totalPagesLabel">sur 1</span>
-<button type="button" id="nextPageButton" data-i18n="button.nextPage">Page suivante</button>
-<button type="button" id="lastPageButton" data-i18n="button.lastPage">Dernière page</button>
+<span id="totalPagesLabel">of 1</span>
+<button type="button" id="nextPageButton" data-i18n="button.nextPage">Next page</button>
+<button type="button" id="lastPageButton" data-i18n="button.lastPage">Last page</button>
 </div>
 <dialog id="questionArea">
 </dialog>
@@ -47,11 +47,11 @@
 <button type="submit" id="sendButton" data-i18n="button.send">Send</button>
 <button type="button" id="abortButton" disabled data-i18n="button.abort">Abort</button>
 <div id="optionsArea">
-<label for="modelSelect" data-i18n="label.model">Modèle: </label>
+<label for="modelSelect" data-i18n="label.model">Model: </label>
 <select id="modelSelect" name="model"></select>
 <label for="effortSelect" data-i18n="label.effort">Effort: </label>
 <select id="effortSelect" name="effort"></select>
-<label for="permissionModeSelect" data-i18n="label.permissionMode">Mode de permission: </label>
+<label for="permissionModeSelect" data-i18n="label.permissionMode">Permission mode: </label>
 <select id="permissionModeSelect" name="permissionMode"></select>
 </div>
 </form>

@@ -2,51 +2,51 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title data-i18n="options.pageTitle">Options de l'application</title>
+<title data-i18n="options.pageTitle">Application options</title>
 <link rel="stylesheet" href="style.css">
 </head><body class="options-page">
-<p><a href="index.html" data-i18n="link.backToApp">Retour à l'application</a></p>
-<h1 data-i18n="options.heading">Options de l'application</h1>
+<p><a href="index.html" data-i18n="link.backToApp">Back to the app</a></p>
+<h1 data-i18n="options.heading">Application options</h1>
 <div id="optionsStatusArea" role="status" aria-live="polite"></div>
 <form id="optionsForm">
 <section aria-labelledby="generalOptionsH2">
-<h2 id="generalOptionsH2" data-i18n="heading.generalOptions">Général</h2>
-<label for="languageSelect" data-i18n="label.language">Langue : </label>
+<h2 id="generalOptionsH2" data-i18n="heading.generalOptions">General</h2>
+<label for="languageSelect" data-i18n="label.language">Language: </label>
 <select id="languageSelect" name="language"></select>
 </section>
 <section aria-labelledby="appearanceOptionsH2">
-<h2 id="appearanceOptionsH2" data-i18n="heading.appearanceOptions">Apparence et ergonomie</h2>
-<label for="themeSelect" data-i18n="label.theme">Thème : </label>
+<h2 id="appearanceOptionsH2" data-i18n="heading.appearanceOptions">Appearance and usability</h2>
+<label for="themeSelect" data-i18n="label.theme">Theme: </label>
 <select id="themeSelect" name="theme"></select>
-<label for="messagesPerPageInput" data-i18n="label.messagesPerPage">Messages par page : </label>
+<label for="messagesPerPageInput" data-i18n="label.messagesPerPage">Messages per page: </label>
 <input type="number" id="messagesPerPageInput" name="messagesPerPage" min="1">
-<label for="sessionsPerPageInput" data-i18n="label.sessionsPerPage">Sessions par page : </label>
+<label for="sessionsPerPageInput" data-i18n="label.sessionsPerPage">Sessions per page: </label>
 <input type="number" id="sessionsPerPageInput" name="sessionsPerPage" min="1">
-<label for="completionSoundInput"><input type="checkbox" id="completionSoundInput" name="completionSound"> <span data-i18n="label.completionSound">Son à la fin de chaque réponse</span></label>
+<label for="completionSoundInput"><input type="checkbox" id="completionSoundInput" name="completionSound"> <span data-i18n="label.completionSound">Sound when a response finishes</span></label>
 </section>
 <section aria-labelledby="defaultRunOptionsH2">
-<h2 id="defaultRunOptionsH2" data-i18n="heading.defaultRunOptions">Paramètres par défaut des nouvelles sessions</h2>
-<label for="defaultModelSelect" data-i18n="label.model">Modèle : </label>
+<h2 id="defaultRunOptionsH2" data-i18n="heading.defaultRunOptions">Defaults for new sessions</h2>
+<label for="defaultModelSelect" data-i18n="label.model">Model: </label>
 <select id="defaultModelSelect" name="defaultModel"></select>
-<label for="defaultEffortSelect" data-i18n="label.effort">Effort : </label>
+<label for="defaultEffortSelect" data-i18n="label.effort">Effort: </label>
 <select id="defaultEffortSelect" name="defaultEffort"></select>
-<label for="defaultPermissionModeSelect" data-i18n="label.permissionMode">Mode de permission : </label>
+<label for="defaultPermissionModeSelect" data-i18n="label.permissionMode">Permission mode: </label>
 <select id="defaultPermissionModeSelect" name="defaultPermissionMode"></select>
 </section>
 <section aria-labelledby="advancedOptionsH2">
-<h2 id="advancedOptionsH2" data-i18n="heading.advancedOptions">Paramètres avancés</h2>
-<label for="hostInput" data-i18n="label.host">Hôte d'écoute du serveur : </label>
+<h2 id="advancedOptionsH2" data-i18n="heading.advancedOptions">Advanced settings</h2>
+<label for="hostInput" data-i18n="label.host">Server listen host: </label>
 <input type="text" id="hostInput" name="host" size="20">
-<label for="portInput" data-i18n="label.port">Port d'écoute du serveur : </label>
+<label for="portInput" data-i18n="label.port">Server listen port: </label>
 <input type="number" id="portInput" name="port" min="1" max="65535">
-<label for="cliCommandInput" data-i18n="label.cliCommand">Commande pour invoquer Claude Code CLI : </label>
+<label for="cliCommandInput" data-i18n="label.cliCommand">Command to invoke the Claude Code CLI: </label>
 <input type="text" id="cliCommandInput" name="cliCommand" size="70">
-<label for="claudeHomeDirInput" data-i18n="label.claudeHomeDir">Répertoire de stockage des sessions Claude Code : </label>
+<label for="claudeHomeDirInput" data-i18n="label.claudeHomeDir">Claude Code sessions storage directory: </label>
 <input type="text" id="claudeHomeDirInput" name="claudeHomeDir" size="70">
 </section>
-<button type="submit" id="saveOptionsButton" data-i18n="button.save">Enregistrer</button>
-<button type="button" id="resetOptionsButton" data-i18n="button.reset">Réinitialiser</button>
-<button type="button" id="backButton" data-i18n="button.back">Retour</button>
+<button type="submit" id="saveOptionsButton" data-i18n="button.save">Save</button>
+<button type="button" id="resetOptionsButton" data-i18n="button.reset">Reset</button>
+<button type="button" id="backButton" data-i18n="button.back">Back</button>
 </form>
 <script type="module" src="options.js"></script>
 </body></html>

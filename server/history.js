@@ -135,9 +135,13 @@ function isSubsetOf (a, b) {
 	return true;
 }
 
+// Left empty rather than defaulting to a placeholder here: this is server
+// code with no notion of the client's chosen UI language, so the
+// language-appropriate placeholder text is the front end's job (see
+// defaultTitle() in front/index.js).
 function withTitle (session) {
 	let { messageIds, ...rest } = session;
-	return { ...rest, title: rest.customTitle || rest.aiTitle || rest.lastMessagePreview || 'Session sans titre' };
+	return { ...rest, title: rest.customTitle || rest.aiTitle || rest.lastMessagePreview || '' };
 }
 
 // A conversation resumed or forked can leave behind more than one file for
