@@ -24,6 +24,23 @@ const EXTRA_WORKSPACES_KEY = 'claudeAccessible.extraWorkspaces';
 const RUN_OPTIONS_PREFIX = 'claudeAccessible.runOptions.';
 const LAST_RUN_OPTIONS_KEY = 'claudeAccessible.lastRunOptions';
 
+// Set from config.completionSound in onWindowLoad.
+let completionSoundEnabled = true;
+// Created lazily (not at module load) and reused across turns, rather than
+// a fresh `new Audio()` each time, so an eager/back-to-back turn restarts
+// the same clip instead of piling up overlapping playbacks.
+let completionAudio = null;
+
+function playCompletionSound () {
+	if (!completionSoundEnabled) return;
+	completionAudio ??= new Audio('notify.mp3');
+	completionAudio.currentTime = 0;
+	// Autoplay can be blocked by the browser (e.g. no user gesture on this
+	// page yet) — non-fatal, the aria-live status text already announces
+	// completion either way.
+	completionAudio.play().catch(() => {});
+}
+
 // Resolved lazily via t() rather than at module load, since translations
 // aren't loaded yet at this point — see initI18n() in onWindowLoad.
 function defaultTitle () {
@@ -579,6 +596,7 @@ function onServerMessage (message) {
 		setWorking(false);
 		hideQuestion();
 		setStatus(t('status.responseFinished'));
+		playCompletionSound();
 		appendMessage('claude', message.result ?? `(${message.subtype})`);
 		recordTokenUsage(message.usage);
 		if (awaitingFreshTitle && message.subtype !== 'aborted') {
@@ -1014,6 +1032,7 @@ async function onWindowLoad () {
 	let config = await fetchConfig();
 	PAGE_SIZE = config.messagesPerPage;
 	SESSIONS_PAGE_SIZE = config.sessionsPerPage;
+	completionSoundEnabled = config.completionSound;
 	populateSelect(document.getElementById('modelSelect'), MODELS, 'option.model', config.defaultModel);
 	populateSelect(document.getElementById('effortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
 	populateSelect(document.getElementById('permissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
