@@ -136,7 +136,9 @@ async function copyTextToClipboard (text) {
 
 // Per-message options (currently just "Copier", copying the original markdown
 // text, not any rendered HTML) — only offered for actual conversation turns
-// ("Vous dites" / "Claude a répondu"), not for tool-use or error entries.
+// ("Vous dites" / "Claude a répondu"), not for tool-use or error entries. One
+// menu per rendered H2 group, not per individual message within it — "text"
+// here is already the whole group's messages joined together.
 function buildMessageOptions (text) {
 	let details = document.createElement('details');
 	details.appendChild(create('summary', 'Options pour ce message'));
@@ -173,8 +175,10 @@ function renderMessages () {
 		let isConversationTurn = group.prefix === 'Vous dites' || group.prefix === 'Claude a répondu';
 		for (let text of group.texts) {
 			messageArea.appendChild(isConversationTurn ? renderMarkdownMessage(text) : create('p', text));
-			if (isConversationTurn) messageArea.appendChild(buildMessageOptions(text));
 		}
+		// One options menu per H2 group, not one per individual message within
+		// it — "Copier" then copies the whole group's messages joined together.
+		if (isConversationTurn) messageArea.appendChild(buildMessageOptions(group.texts.join('\n\n')));
 	}
 	updatePaginationControls();
 }
@@ -222,38 +226,57 @@ function setSessionTitle (title) {
 }
 
 // Token usage, input/output kept separate (useful to know which side is
-// driving cost if usage-based billing ever becomes relevant). For a resumed
+// driving cost if usage-based billing ever becomes relevant), plus the two
+// cache-related counters the API actually reports — there's no such thing as
+// "cache output" tokens, only cache writes (cache_creation_input_tokens, i.e.
+// content newly written to the cache) and cache reads (cache_read_input_tokens,
+// i.e. content reused from it), both on the input side. For a resumed
 // session, the starting total is recomputed server-side from the session's
 // own file (session.tokenUsage — see history.js) rather than starting back
 // at 0, since the CLI's live stream only ever gives a per-turn figure, not a
 // running total.
-let sessionTokenTotals = { input: 0, output: 0 };
+let sessionTokenTotals = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
 
 function renderTokenUsage (lastTurn) {
 	let area = document.getElementById('tokenUsageArea');
-	if (!lastTurn && !sessionTokenTotals.input && !sessionTokenTotals.output) {
+	let totals = sessionTokenTotals;
+	let hasAnyTotal = totals.input || totals.output || totals.cacheCreation || totals.cacheRead;
+	if (!lastTurn && !hasAnyTotal) {
 		area.textContent = '';
 		return;
 	}
 	let lastTurnText = lastTurn
-		? `Ce tour : ${lastTurn.input} tokens en entrée, ${lastTurn.output} tokens en sortie. `
+		? `Ce tour : ${lastTurn.input} tokens en entrée, ${lastTurn.output} tokens en sortie, `
+			+ `${lastTurn.cacheCreation} tokens de cache en écriture, ${lastTurn.cacheRead} tokens de cache en lecture. `
 		: '';
 	area.textContent = `${lastTurnText}Total de la session : `
-		+ `${sessionTokenTotals.input} tokens en entrée, ${sessionTokenTotals.output} tokens en sortie.`;
+		+ `${totals.input} tokens en entrée, ${totals.output} tokens en sortie, `
+		+ `${totals.cacheCreation} tokens de cache en écriture, ${totals.cacheRead} tokens de cache en lecture.`;
 }
 
 function resetTokenUsage (seed) {
-	sessionTokenTotals = { input: seed?.input || 0, output: seed?.output || 0 };
+	sessionTokenTotals = {
+		input: seed?.input || 0,
+		output: seed?.output || 0,
+		cacheCreation: seed?.cacheCreation || 0,
+		cacheRead: seed?.cacheRead || 0,
+	};
 	renderTokenUsage(null);
 }
 
 function recordTokenUsage (usage) {
 	if (!usage) return;
-	let input = usage.input_tokens ?? 0;
-	let output = usage.output_tokens ?? 0;
-	sessionTokenTotals.input += input;
-	sessionTokenTotals.output += output;
-	renderTokenUsage({ input, output });
+	let turn = {
+		input: usage.input_tokens ?? 0,
+		output: usage.output_tokens ?? 0,
+		cacheCreation: usage.cache_creation_input_tokens ?? 0,
+		cacheRead: usage.cache_read_input_tokens ?? 0,
+	};
+	sessionTokenTotals.input += turn.input;
+	sessionTokenTotals.output += turn.output;
+	sessionTokenTotals.cacheCreation += turn.cacheCreation;
+	sessionTokenTotals.cacheRead += turn.cacheRead;
+	renderTokenUsage(turn);
 }
 
 // All message texts (every group, every kind — a full raw dump of the log,
