@@ -26,17 +26,22 @@
 	"button.abort": "Abort",
 
 	"label.model": "Model: ",
+	"option.model.haiku": "Haiku",
 	"option.model.sonnet": "Sonnet",
 	"option.model.opus": "Opus",
-	"option.model.haiku": "Haiku",
+	"option.model.fable": "Fable",
 	"label.effort": "Effort: ",
 	"option.effort.low": "Low",
 	"option.effort.medium": "Medium",
 	"option.effort.high": "High",
+	"option.effort.xhigh": "Extra high",
+	"option.effort.max": "Maximum",
 	"label.permissionMode": "Permission mode: ",
-	"option.permissionMode.default": "Default",
+	"option.permissionMode.default": "Manual",
 	"option.permissionMode.acceptEdits": "Accept edits",
 	"option.permissionMode.plan": "Plan",
+	"option.permissionMode.auto": "Auto",
+	"option.permissionMode.dontAsk": "Don't ask",
 	"option.permissionMode.bypassPermissions": "Bypass permissions",
 
 	"status.copied": "Copied to clipboard.",
@@ -87,5 +92,37 @@
 	"button.deny": "Deny",
 
 	"tokenUsage.turn": "This turn: {{input}} input tokens, {{output}} output tokens, {{cacheCreation}} cache-write tokens, {{cacheRead}} cache-read tokens. ",
-	"tokenUsage.total": "Session total: {{input}} input tokens, {{output}} output tokens, {{cacheCreation}} cache-write tokens, {{cacheRead}} cache-read tokens."
+	"tokenUsage.total": "Session total: {{input}} input tokens, {{output}} output tokens, {{cacheCreation}} cache-write tokens, {{cacheRead}} cache-read tokens.",
+
+	"link.options": "Options",
+	"link.backToApp": "Back to the app",
+	"options.pageTitle": "Options",
+	"options.heading": "Options",
+
+	"heading.generalOptions": "General",
+	"heading.appearanceOptions": "Appearance and usability",
+	"heading.defaultRunOptions": "Defaults for new sessions",
+	"heading.advancedOptions": "Advanced settings",
+
+	"label.language": "Language: ",
+	"language.auto": "Auto-detect",
+	"language.fr": "Français",
+	"language.en": "English",
+
+	"label.theme": "Theme: ",
+	"theme.auto": "Auto-detect",
+	"theme.light": "Light",
+	"theme.dark": "Dark",
+	"theme.contrast": "High contrast",
+
+	"label.messagesPerPage": "Messages per page: ",
+	"label.sessionsPerPage": "Sessions per page: ",
+	"label.completionSound": "Sound when a response finishes",
+
+	"label.cliCommand": "Command to invoke the Claude Code CLI: ",
+	"label.claudeHomeDir": "Claude Code sessions storage directory: ",
+
+	"button.save": "Save",
+	"status.optionsSaved": "Options saved.",
+	"status.optionsSaveFailed": "Failed to save options."
 }

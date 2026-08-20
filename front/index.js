@@ -1,5 +1,7 @@
 import { create } from './DOMHelpers.js';
 import { initI18n, t } from './i18n.js';
+import { fetchConfig } from './ConfigClient.js';
+import { MODELS, EFFORTS, PERMISSION_MODES, populateSelect } from './runOptions.js';
 import { connect, send } from './WsClient.js';
 import {
 	fetchProjects, fetchSessions, fetchSession,
@@ -109,7 +111,8 @@ function previewText (text) {
 // Consecutive messages of the same kind (several "Claude a répondu" in a row,
 // several tool uses in a row...) are grouped under a single heading — each
 // group is one pagination unit, holding one paragraph per message.
-const PAGE_SIZE = 20;
+// Overridden from config (messagesPerPage) once it's fetched in onWindowLoad.
+let PAGE_SIZE = 20;
 let messages = [];
 let currentPage = 1;
 
@@ -729,7 +732,8 @@ function updateSessionAriaCurrent () {
 // Sessions are fetched once (already sorted newest-first by the server, see
 // history.js) and paginated client-side with simple older/newer buttons —
 // no page-number input needed here, unlike the message log.
-const SESSIONS_PAGE_SIZE = 10;
+// Overridden from config (sessionsPerPage) once it's fetched in onWindowLoad.
+let SESSIONS_PAGE_SIZE = 10;
 let allSessions = [];
 let sessionsPage = 0;
 
@@ -1004,6 +1008,13 @@ async function restoreLastState () {
 
 async function onWindowLoad () {
 	await initI18n();
+
+	let config = await fetchConfig();
+	PAGE_SIZE = config.messagesPerPage;
+	SESSIONS_PAGE_SIZE = config.sessionsPerPage;
+	populateSelect(document.getElementById('modelSelect'), MODELS, 'option.model', config.defaultModel);
+	populateSelect(document.getElementById('effortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
+	populateSelect(document.getElementById('permissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
 
 	connect(onServerMessage);
 

@@ -24,9 +24,15 @@ const DEFAULTS = {
 	sessionsPerPage: 10,
 	// '' = auto-detect from the browser's languages at load time.
 	language: '',
-	theme: 'light',
-	fontSize: 'normal',
+	// '' = auto-detect from the browser's prefers-color-scheme, falling back
+	// to light (see front/theme.js, wired in with the CSS pass).
+	theme: '',
 	completionSound: true,
+	// Applied to a brand new session that has no run-options history of its
+	// own yet (see front/index.js's loadRunOptionsForSession).
+	defaultModel: 'sonnet',
+	defaultEffort: 'low',
+	defaultPermissionMode: 'default',
 };
 
 function sanitize (patch) {

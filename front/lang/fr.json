@@ -26,17 +26,22 @@
 	"button.abort": "Annuler l'envoi",
 
 	"label.model": "Modèle : ",
+	"option.model.haiku": "Haiku",
 	"option.model.sonnet": "Sonnet",
 	"option.model.opus": "Opus",
-	"option.model.haiku": "Haiku",
+	"option.model.fable": "Fable",
 	"label.effort": "Effort : ",
 	"option.effort.low": "Faible",
 	"option.effort.medium": "Moyen",
 	"option.effort.high": "Élevé",
+	"option.effort.xhigh": "Très élevé",
+	"option.effort.max": "Maximal",
 	"label.permissionMode": "Mode de permission : ",
-	"option.permissionMode.default": "Par défaut",
+	"option.permissionMode.default": "Manuel",
 	"option.permissionMode.acceptEdits": "Accepter les modifications",
 	"option.permissionMode.plan": "Plan",
+	"option.permissionMode.auto": "Automatique",
+	"option.permissionMode.dontAsk": "Ne jamais demander",
 	"option.permissionMode.bypassPermissions": "Ignorer les permissions",
 
 	"status.copied": "Copié dans le presse-papiers.",
@@ -87,5 +92,37 @@
 	"button.deny": "Refuser",
 
 	"tokenUsage.turn": "Ce tour : {{input}} tokens en entrée, {{output}} tokens en sortie, {{cacheCreation}} tokens de cache en écriture, {{cacheRead}} tokens de cache en lecture. ",
-	"tokenUsage.total": "Total de la session : {{input}} tokens en entrée, {{output}} tokens en sortie, {{cacheCreation}} tokens de cache en écriture, {{cacheRead}} tokens de cache en lecture."
+	"tokenUsage.total": "Total de la session : {{input}} tokens en entrée, {{output}} tokens en sortie, {{cacheCreation}} tokens de cache en écriture, {{cacheRead}} tokens de cache en lecture.",
+
+	"link.options": "Options",
+	"link.backToApp": "Retour à l'application",
+	"options.pageTitle": "Options",
+	"options.heading": "Options",
+
+	"heading.generalOptions": "Général",
+	"heading.appearanceOptions": "Apparence et ergonomie",
+	"heading.defaultRunOptions": "Paramètres par défaut des nouvelles sessions",
+	"heading.advancedOptions": "Paramètres avancés",
+
+	"label.language": "Langue : ",
+	"language.auto": "Détection automatique",
+	"language.fr": "Français",
+	"language.en": "English",
+
+	"label.theme": "Thème : ",
+	"theme.auto": "Détection automatique",
+	"theme.light": "Clair",
+	"theme.dark": "Sombre",
+	"theme.contrast": "Contraste élevé",
+
+	"label.messagesPerPage": "Messages par page : ",
+	"label.sessionsPerPage": "Sessions par page : ",
+	"label.completionSound": "Son à la fin de chaque réponse",
+
+	"label.cliCommand": "Commande pour invoquer Claude Code CLI : ",
+	"label.claudeHomeDir": "Répertoire de stockage des sessions Claude Code : ",
+
+	"button.save": "Enregistrer",
+	"status.optionsSaved": "Options enregistrées.",
+	"status.optionsSaveFailed": "Échec de l'enregistrement des options."
 }

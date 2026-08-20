@@ -1,0 +1,44 @@
+<!DOCTYPE HTML>
+<head>
+<meta charset="UTF-8"/>
+<title data-i18n="options.pageTitle">Options</title>
+</head><body>
+<p><a href="index.html" data-i18n="link.backToApp">Retour à l'application</a></p>
+<h1 data-i18n="options.heading">Options</h1>
+<div id="optionsStatusArea" role="status" aria-live="polite"></div>
+<form id="optionsForm">
+<section aria-labelledby="generalOptionsH2">
+<h2 id="generalOptionsH2" data-i18n="heading.generalOptions">Général</h2>
+<label for="languageSelect" data-i18n="label.language">Langue : </label>
+<select id="languageSelect" name="language"></select>
+</section>
+<section aria-labelledby="appearanceOptionsH2">
+<h2 id="appearanceOptionsH2" data-i18n="heading.appearanceOptions">Apparence et ergonomie</h2>
+<label for="themeSelect" data-i18n="label.theme">Thème : </label>
+<select id="themeSelect" name="theme"></select>
+<label for="messagesPerPageInput" data-i18n="label.messagesPerPage">Messages par page : </label>
+<input type="number" id="messagesPerPageInput" name="messagesPerPage" min="1">
+<label for="sessionsPerPageInput" data-i18n="label.sessionsPerPage">Sessions par page : </label>
+<input type="number" id="sessionsPerPageInput" name="sessionsPerPage" min="1">
+<label for="completionSoundInput"><input type="checkbox" id="completionSoundInput" name="completionSound"> <span data-i18n="label.completionSound">Son à la fin de chaque réponse</span></label>
+</section>
+<section aria-labelledby="defaultRunOptionsH2">
+<h2 id="defaultRunOptionsH2" data-i18n="heading.defaultRunOptions">Paramètres par défaut des nouvelles sessions</h2>
+<label for="defaultModelSelect" data-i18n="label.model">Modèle : </label>
+<select id="defaultModelSelect" name="defaultModel"></select>
+<label for="defaultEffortSelect" data-i18n="label.effort">Effort : </label>
+<select id="defaultEffortSelect" name="defaultEffort"></select>
+<label for="defaultPermissionModeSelect" data-i18n="label.permissionMode">Mode de permission : </label>
+<select id="defaultPermissionModeSelect" name="defaultPermissionMode"></select>
+</section>
+<section aria-labelledby="advancedOptionsH2">
+<h2 id="advancedOptionsH2" data-i18n="heading.advancedOptions">Paramètres avancés</h2>
+<label for="cliCommandInput" data-i18n="label.cliCommand">Commande pour invoquer Claude Code CLI : </label>
+<input type="text" id="cliCommandInput" name="cliCommand" size="70">
+<label for="claudeHomeDirInput" data-i18n="label.claudeHomeDir">Répertoire de stockage des sessions Claude Code : </label>
+<input type="text" id="claudeHomeDirInput" name="claudeHomeDir" size="70">
+</section>
+<button type="submit" id="saveOptionsButton" data-i18n="button.save">Enregistrer</button>
+</form>
+<script type="module" src="options.js"></script>
+</body></html>
