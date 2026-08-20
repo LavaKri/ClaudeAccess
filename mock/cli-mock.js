@@ -10,31 +10,6 @@
 // and the tool added to `--allowed-tools`.
 
 import { randomUUID } from 'node:crypto';
-import { createInterface } from 'node:readline';
-
-// Responses to user_question come back as JSON lines on stdin, keyed by the
-// "id" the request was sent with — mirroring the shape of the real
-// interactive control protocol (input-format=stream-json), which hasn't been
-// captured for real yet, see plan.md. Permission requests no longer use this:
-// see the note above.
-const pendingResponses = new Map();
-const stdinInterface = createInterface({ input: process.stdin });
-stdinInterface.on('line', line => {
-	try {
-		let response = JSON.parse(line);
-		let resolve = pendingResponses.get(response.id);
-		if (resolve) {
-			pendingResponses.delete(response.id);
-			resolve(response);
-		}
-	} catch {
-		// Ignore malformed lines.
-	}
-});
-
-function waitForResponse (id) {
-	return new Promise(resolve => pendingResponses.set(id, resolve));
-}
 
 const CANNED_RESPONSES = [
 	"Bonjour ! Ceci est une réponse simulée du mock de claude CLI, générée localement sans consommer d'usage réel.",
@@ -150,27 +125,8 @@ async function main () {
 		// denied earlier: retry the same tool now that it's allowed.
 		interactionNote = await attemptTool(sessionId, messageId, model, allowedTools);
 	} else {
-		let roll = Math.random();
-		if (roll < 0.3) {
+		if (Math.random() < 0.3) {
 			interactionNote = await attemptTool(sessionId, messageId, model, allowedTools);
-		} else if (roll < 0.6) {
-			// Hypothetical event, not confirmed on the real `claude` CLI yet (its
-			// interactive control protocol wasn't captured for real, see plan.md).
-			// A user question is open: predefined options are offered, but a
-			// free-text answer is still valid — unlike a permission request.
-			let id = randomUUID();
-			await emit({
-				type: 'user_question',
-				session_id: sessionId,
-				id,
-				text: 'Quel style de message de commit préfères-tu ?',
-				options: [
-					{ id: 'conventional', label: 'Conventional commits' },
-					{ id: 'freeform', label: 'Libre' },
-				],
-			});
-			let response = await waitForResponse(id);
-			interactionNote = ` (Tu as répondu : "${response.optionId || response.text}".)`;
 		}
 	}
 
@@ -242,9 +198,9 @@ async function main () {
 
 	// Confirmed for real with --prompt-suggestions=true on an actionable prompt
 	// (see plan.md): the field is "suggestion", fires after "result", no id/
-	// response expected (fire-and-forget, unlike user_question). Emitted here
-	// roughly half the time, to exercise prefilling the prompt field on the
-	// frontend without suggesting one on every single turn.
+	// response expected — fire-and-forget. Emitted here roughly half the time,
+	// to exercise prefilling the prompt field on the frontend without
+	// suggesting one on every single turn.
 	if (Math.random() < 0.5) {
 		await wait(randomDelay(100, 300));
 		await emit({
@@ -253,10 +209,6 @@ async function main () {
 			suggestion: 'commit ça',
 		});
 	}
-
-	// Listening on stdin (for user_question responses) keeps the process alive
-	// otherwise, since it's an open handle from Node's perspective.
-	stdinInterface.close();
 }
 
 main();

@@ -19,7 +19,7 @@ architecture decisions behind it.
 - Express serves `front/` and any auxiliary REST routes (e.g. recent working
   directories, recent sessions).
 - `ws` handles the WebSocket channel used for the streaming conversation
-  (spawn output, permission requests, `AskUserQuestion`-style prompts).
+  (spawn output, permission requests).
   `socket.io` is deliberately not used: no polling fallback or rooms are
   needed here.
 

@@ -23,8 +23,6 @@ const LAST_RUN_OPTIONS_KEY = 'claudeAccessible.lastRunOptions';
 const DEFAULT_TITLE = 'Claude code Testing';
 let currentSessionTitle = DEFAULT_TITLE;
 
-// The open question currently awaiting an answer (user_question), if any.
-let pendingQuestion = null;
 // Set while a tool-permission prompt is shown, so the "aborted" result that
 // follows our own abort() call doesn't reset the UI out from under it.
 let awaitingToolPermission = null; // { toolName, toolUseId }
@@ -346,7 +344,6 @@ function setWorking (working) {
 }
 
 function hideQuestion () {
-	pendingQuestion = null;
 	let dialog = document.getElementById('questionArea');
 	dialog.oncancel = null;
 	dialog.textContent = '';
@@ -356,8 +353,8 @@ function hideQuestion () {
 // Renders the question dialog with a text and a set of option buttons, and
 // replicates the text into the aria-live status region so it's read out
 // immediately, alongside focus moving to the first option. Escape is blocked
-// here (unlike showInputDialog below): a permission request or user question
-// must be answered through one of the option buttons.
+// here (unlike showInputDialog below): a permission request must be answered
+// through one of the option buttons.
 function renderQuestion (text, options) {
 	let dialog = document.getElementById('questionArea');
 	dialog.textContent = '';
@@ -466,29 +463,6 @@ function showConfirmDialog (title, message) {
 	});
 }
 
-async function answerUserQuestion (optionId) {
-	let question = pendingQuestion;
-	hideQuestion();
-	setWorking(true);
-	setStatus('Working...');
-	await send({ type: 'user_question_response', id: question.id, optionId });
-}
-
-// User questions are open: predefined options are offered as a shortcut, but
-// the prompt field also stays available for a free-text answer.
-function showUserQuestion (message) {
-	pendingQuestion = { id: message.id };
-
-	renderQuestion(message.text, message.options.map(option => ({
-		label: option.label,
-		onClick: () => answerUserQuestion(option.id),
-	})));
-
-	document.getElementById('prompt').readOnly = false;
-	document.getElementById('sendButton').disabled = false;
-	document.getElementById('abortButton').disabled = false;
-}
-
 // Describes a tool's input in plain language rather than raw JSON — "bash"
 // and its "command" input are the only shape confirmed so far (see the mock),
 // so that's the one special-cased; anything else falls back to the tool name
@@ -499,10 +473,10 @@ function describeToolAction (input) {
 }
 
 // Permission requests are a closed question (allow-once / always-allow / deny):
-// only the option buttons answer, the prompt field stays unavailable. Unlike
-// user_question, there's no live pause on the CLI side — see plan.md: an
-// unauthorized tool just comes back denied, and "allowing" it means starting
-// a new --resume run with the tool added to --allowed-tools.
+// only the option buttons answer, the prompt field stays unavailable. There's
+// no live pause on the CLI side — see plan.md: an unauthorized tool just comes
+// back denied, and "allowing" it means starting a new --resume run with the
+// tool added to --allowed-tools.
 function showToolPermissionRequest (toolName, toolInput, toolUseId) {
 	awaitingToolPermission = { toolName, toolUseId };
 
@@ -589,11 +563,6 @@ function onServerMessage (message) {
 	if (message.type === 'assistant') cacheToolUse(message);
 	if (message.type === 'user' && handleIfToolDenied(message)) return;
 
-	// Hypothetical event, not yet confirmed on the real `claude` CLI: see plan.md.
-	if (message.type === 'user_question') {
-		showUserQuestion(message);
-		return;
-	}
 	// Confirmed for real (see plan.md): field is "suggestion", fires after "result".
 	if (message.type === 'prompt_suggestion') {
 		suggestPrompt(message.suggestion);
@@ -637,15 +606,6 @@ async function onPromptSubmit (event) {
 
 	promptField.value = '';
 	appendMessage('Vous dites', text);
-
-	if (pendingQuestion) {
-		let question = pendingQuestion;
-		hideQuestion();
-		setWorking(true);
-		setStatus('Working...');
-		await send({ type: 'user_question_response', id: question.id, text });
-		return;
-	}
 
 	if (!currentSessionId) awaitingFreshTitle = true;
 	setWorking(true);

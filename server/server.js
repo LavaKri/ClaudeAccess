@@ -166,12 +166,6 @@ wss.on('connection', ws => {
 			runPrompt(ws, connectionState, request);
 		} else if (request.type === 'abort') {
 			abortPrompt(ws, connectionState);
-		} else if (request.type === 'user_question_response') {
-			if (connectionState.activeChild) {
-				connectionState.activeChild.stdin.write(JSON.stringify(request) + '\n');
-			} else {
-				send(ws, { type: 'error', message: 'No prompt is currently running on this connection' });
-			}
 		} else {
 			send(ws, { type: 'error', message: `Unknown message type: ${request.type}` });
 		}
