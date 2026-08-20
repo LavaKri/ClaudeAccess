@@ -8,8 +8,20 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 
-const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
-const CONFIG_PATH = path.join(os.homedir(), '.claude.json');
+const DEFAULT_HOME_DIR = path.join(os.homedir(), '.claude');
+
+// claudeHomeDir is configurable (see config.js's claudeHomeDir setting) since
+// it's just where Claude Code happens to keep its own state on this machine;
+// every function below takes it as an optional last argument, defaulting to
+// the real ~/.claude for callers (tests, mainly) that don't care.
+function projectsDir (homeDir) {
+	return path.join(homeDir || DEFAULT_HOME_DIR, 'projects');
+}
+
+// ~/.claude.json sits next to ~/.claude, not inside it.
+function claudeConfigPath (homeDir) {
+	return path.join(path.dirname(homeDir || DEFAULT_HOME_DIR), '.claude.json');
+}
 
 export function encodeProjectPath (projectPath) {
 	let normalized = projectPath.replace(/[\\/]+$/, '');
@@ -19,17 +31,17 @@ export function encodeProjectPath (projectPath) {
 // Known working directories, deduped by their encoded folder name (Windows
 // paths can appear twice in ~/.claude.json, once with \ and once with /),
 // limited to the ones that actually have a history directory.
-export async function listProjects () {
+export async function listProjects (homeDir) {
 	let existingEncoded;
 	try {
-		existingEncoded = new Set(await fs.readdir(PROJECTS_DIR));
+		existingEncoded = new Set(await fs.readdir(projectsDir(homeDir)));
 	} catch {
 		return [];
 	}
 
 	let projectPaths;
 	try {
-		let config = JSON.parse(await fs.readFile(CONFIG_PATH, 'utf8'));
+		let config = JSON.parse(await fs.readFile(claudeConfigPath(homeDir), 'utf8'));
 		projectPaths = Object.keys(config.projects || {});
 	} catch {
 		projectPaths = [];
@@ -132,8 +144,8 @@ function withTitle (session) {
 // what's really the same logical session; drop any whose message set is
 // wholly contained in another's, keeping only the most complete version —
 // same de-duplication approach as claude-code-webui.
-export async function listSessions (cwd) {
-	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+export async function listSessions (cwd, homeDir) {
+	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
 	let files;
 	try {
 		files = (await fs.readdir(dir)).filter(f => f.endsWith('.jsonl'));
@@ -155,30 +167,30 @@ export async function listSessions (cwd) {
 	return unique.map(withTitle);
 }
 
-export async function loadSession (cwd, sessionId) {
-	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+export async function loadSession (cwd, sessionId, homeDir) {
+	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
 	let session = await readSessionFile(path.join(dir, `${sessionId}.jsonl`));
 	return session && withTitle(session);
 }
 
 // Appends a "custom-title" line, the same shape `claude` itself would write
 // for a manual rename — read back by readSessionFile() above.
-export async function setCustomTitle (cwd, sessionId, title) {
-	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+export async function setCustomTitle (cwd, sessionId, title, homeDir) {
+	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
 	let filePath = path.join(dir, `${sessionId}.jsonl`);
 	await fs.appendFile(filePath, JSON.stringify({ type: 'custom-title', customTitle: title }) + '\n');
 }
 
-export async function deleteSession (cwd, sessionId) {
-	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+export async function deleteSession (cwd, sessionId, homeDir) {
+	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
 	await fs.unlink(path.join(dir, `${sessionId}.jsonl`));
 }
 
 // Copies the session's raw file under a fresh id: a full, independent replay
 // of the same conversation, exactly like continuing it as a new session would
 // look on disk, rather than a shared/linked history.
-export async function duplicateSession (cwd, sessionId) {
-	let dir = path.join(PROJECTS_DIR, encodeProjectPath(cwd));
+export async function duplicateSession (cwd, sessionId, homeDir) {
+	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
 	let newSessionId = randomUUID();
 	await fs.copyFile(path.join(dir, `${sessionId}.jsonl`), path.join(dir, `${newSessionId}.jsonl`));
 	return newSessionId;

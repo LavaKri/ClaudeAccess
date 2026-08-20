@@ -1,67 +1,67 @@
 <!DOCTYPE HTML>
 <head>
 <meta charset="UTF-8"/>
-<title>Claude Code</title>
+<title data-i18n="app.title">Claude Code</title>
 </head><body>
 <section id="workflowArea" aria-labelledby="workflowAreaH2">
-<h2 id="workflowAreaH2">Espace de travail</h2>
+<h2 id="workflowAreaH2" data-i18n="heading.workspace">Espace de travail</h2>
 <ul id="workspaceList"></ul>
-<button type="button" id="addWorkspaceButton">Ajouter un espace de travail...</button>
+<button type="button" id="addWorkspaceButton" data-i18n="button.addWorkspace">Ajouter un espace de travail...</button>
 </section>
 <section id="sessionsArea" aria-labelledby="sessionsAreaH2">
-<h2 id="sessionsAreaH2">Sessions</h2>
-<button type="button" id="newSessionButton">Nouvelle session</button>
-<button type="button" id="refreshSessionsButton">Rafraîchir les sessions</button>
+<h2 id="sessionsAreaH2" data-i18n="heading.sessions">Sessions</h2>
+<button type="button" id="newSessionButton" data-i18n="button.newSession">Nouvelle session</button>
+<button type="button" id="refreshSessionsButton" data-i18n="button.refreshSessions">Rafraîchir les sessions</button>
 <ul id="sessionList"></ul>
-<button type="button" id="newerSessionsButton">Sessions plus récentes</button>
-<button type="button" id="olderSessionsButton">Sessions plus anciennes</button>
+<button type="button" id="newerSessionsButton" data-i18n="button.newerSessions">Sessions plus récentes</button>
+<button type="button" id="olderSessionsButton" data-i18n="button.olderSessions">Sessions plus anciennes</button>
 </section>
-<h1 id="sessionTitle">Claude code</h1>
+<h1 id="sessionTitle" data-i18n="session.defaultTitle">Claude code</h1>
 <div id="statusArea" role="status" aria-live="polite">
 </div>
 <div id="sessionOptionsArea">
 </div>
 <div id="tokenUsageArea">
 </div>
-<section id="messageArea" aria-label="Messages">
+<section id="messageArea" aria-label="Messages" data-i18n-attr="aria-label:aria.messages">
 </section>
-<div id="paginationArea" role="group" aria-label="Pagination des messages">
-<button type="button" id="firstPageButton">Première page</button>
-<button type="button" id="prevPageButton">Page précédente</button>
-<label for="pageInput">Page </label>
+<div id="paginationArea" role="group" aria-label="Pagination des messages" data-i18n-attr="aria-label:aria.pagination">
+<button type="button" id="firstPageButton" data-i18n="button.firstPage">Première page</button>
+<button type="button" id="prevPageButton" data-i18n="button.prevPage">Page précédente</button>
+<label for="pageInput" data-i18n="label.page">Page </label>
 <input type="number" id="pageInput" min="1" value="1" size="4">
 <span id="totalPagesLabel">sur 1</span>
-<button type="button" id="nextPageButton">Page suivante</button>
-<button type="button" id="lastPageButton">Dernière page</button>
+<button type="button" id="nextPageButton" data-i18n="button.nextPage">Page suivante</button>
+<button type="button" id="lastPageButton" data-i18n="button.lastPage">Dernière page</button>
 </div>
 <dialog id="questionArea">
 </dialog>
 <section id="promptArea" aria-labelledby="promptAreaH2">
-<h2 id="promptAreaH2">Prompt</h2>
+<h2 id="promptAreaH2" data-i18n="heading.prompt">Prompt</h2>
 <form id="promptForm">
-<label for="prompt">Prompt: </label>
+<label for="prompt" data-i18n="label.prompt">Prompt: </label>
 <textarea id="prompt" name="prompt" rows="10" cols="100"></textarea>
-<button type="submit" id="sendButton">Send</button>
-<button type="button" id="abortButton" disabled>Abort</button>
+<button type="submit" id="sendButton" data-i18n="button.send">Send</button>
+<button type="button" id="abortButton" disabled data-i18n="button.abort">Abort</button>
 <div id="optionsArea">
-<label for="modelSelect">Modèle: </label>
+<label for="modelSelect" data-i18n="label.model">Modèle: </label>
 <select id="modelSelect" name="model">
-<option value="sonnet" selected>Sonnet</option>
-<option value="opus">Opus</option>
-<option value="haiku">Haiku</option>
+<option value="sonnet" selected data-i18n="option.model.sonnet">Sonnet</option>
+<option value="opus" data-i18n="option.model.opus">Opus</option>
+<option value="haiku" data-i18n="option.model.haiku">Haiku</option>
 </select>
-<label for="effortSelect">Effort: </label>
+<label for="effortSelect" data-i18n="label.effort">Effort: </label>
 <select id="effortSelect" name="effort">
-<option value="low" selected>Faible</option>
-<option value="medium">Moyen</option>
-<option value="high">Élevé</option>
+<option value="low" selected data-i18n="option.effort.low">Faible</option>
+<option value="medium" data-i18n="option.effort.medium">Moyen</option>
+<option value="high" data-i18n="option.effort.high">Élevé</option>
 </select>
-<label for="permissionModeSelect">Mode de permission: </label>
+<label for="permissionModeSelect" data-i18n="label.permissionMode">Mode de permission: </label>
 <select id="permissionModeSelect" name="permissionMode">
-<option value="default" selected>Par défaut</option>
-<option value="acceptEdits">Accepter les modifications</option>
-<option value="plan">Plan</option>
-<option value="bypassPermissions">Ignorer les permissions</option>
+<option value="default" selected data-i18n="option.permissionMode.default">Par défaut</option>
+<option value="acceptEdits" data-i18n="option.permissionMode.acceptEdits">Accepter les modifications</option>
+<option value="plan" data-i18n="option.permissionMode.plan">Plan</option>
+<option value="bypassPermissions" data-i18n="option.permissionMode.bypassPermissions">Ignorer les permissions</option>
 </select>
 </div>
 </form>

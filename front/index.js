@@ -1,4 +1,5 @@
 import { create } from './DOMHelpers.js';
+import { initI18n, t } from './i18n.js';
 import { connect, send } from './WsClient.js';
 import {
 	fetchProjects, fetchSessions, fetchSession,
@@ -20,8 +21,12 @@ const EXTRA_WORKSPACES_KEY = 'claudeAccessible.extraWorkspaces';
 const RUN_OPTIONS_PREFIX = 'claudeAccessible.runOptions.';
 const LAST_RUN_OPTIONS_KEY = 'claudeAccessible.lastRunOptions';
 
-const DEFAULT_TITLE = 'Claude code Testing';
-let currentSessionTitle = DEFAULT_TITLE;
+// Resolved lazily via t() rather than at module load, since translations
+// aren't loaded yet at this point — see initI18n() in onWindowLoad.
+function defaultTitle () {
+	return t('session.defaultTitle');
+}
+let currentSessionTitle = '';
 
 // Set while a tool-permission prompt is shown, so the "aborted" result that
 // follows our own abort() call doesn't reset the UI out from under it.
@@ -116,7 +121,7 @@ function updatePaginationControls () {
 	let pages = pageCount();
 	document.getElementById('pageInput').value = currentPage;
 	document.getElementById('pageInput').max = pages;
-	document.getElementById('totalPagesLabel').textContent = `sur ${pages}`;
+	document.getElementById('totalPagesLabel').textContent = t('label.totalPages', { count: pages });
 	document.getElementById('firstPageButton').disabled = currentPage <= 1;
 	document.getElementById('prevPageButton').disabled = currentPage <= 1;
 	document.getElementById('nextPageButton').disabled = currentPage >= pages;
@@ -126,9 +131,9 @@ function updatePaginationControls () {
 async function copyTextToClipboard (text) {
 	try {
 		await navigator.clipboard.writeText(text);
-		setStatus('Copié dans le presse-papiers.');
+		setStatus(t('status.copied'));
 	} catch {
-		setStatus('Échec de la copie dans le presse-papiers.');
+		setStatus(t('status.copyFailed'));
 	}
 }
 
@@ -139,8 +144,8 @@ async function copyTextToClipboard (text) {
 // here is already the whole group's messages joined together.
 function buildMessageOptions (text) {
 	let details = document.createElement('details');
-	details.appendChild(create('summary', 'Options pour ce message'));
-	let copyButton = create('button', 'Copier');
+	details.appendChild(create('summary', t('details.messageOptions')));
+	let copyButton = create('button', t('button.copy'));
 	copyButton.type = 'button';
 	copyButton.addEventListener('click', () => copyTextToClipboard(text));
 	details.appendChild(copyButton);
@@ -169,8 +174,8 @@ function renderMessages () {
 	let messageArea = document.getElementById('messageArea');
 	messageArea.textContent = '';
 	for (let group of messages.slice(start, start + PAGE_SIZE)) {
-		messageArea.appendChild(create('h2', `${group.prefix}: ${previewText(group.texts[0])}`));
-		let isConversationTurn = group.prefix === 'Vous dites' || group.prefix === 'Claude a répondu';
+		messageArea.appendChild(create('h2', `${t('message.prefix.' + group.prefix)}: ${previewText(group.texts[0])}`));
+		let isConversationTurn = group.prefix === 'you' || group.prefix === 'claude';
 		for (let text of group.texts) {
 			messageArea.appendChild(isConversationTurn ? renderMarkdownMessage(text) : create('p', text));
 		}
@@ -184,7 +189,7 @@ function renderMessages () {
 function goToPage (page) {
 	if (Number.isInteger(page)) currentPage = page;
 	renderMessages();
-	setStatus(`Page ${currentPage} sur ${pageCount()}`);
+	setStatus(t('status.page', { page: currentPage, total: pageCount() }));
 }
 
 // Adds a message to the log, merging it into the previous group when it's the
@@ -243,13 +248,8 @@ function renderTokenUsage (lastTurn) {
 		area.textContent = '';
 		return;
 	}
-	let lastTurnText = lastTurn
-		? `Ce tour : ${lastTurn.input} tokens en entrée, ${lastTurn.output} tokens en sortie, `
-			+ `${lastTurn.cacheCreation} tokens de cache en écriture, ${lastTurn.cacheRead} tokens de cache en lecture. `
-		: '';
-	area.textContent = `${lastTurnText}Total de la session : `
-		+ `${totals.input} tokens en entrée, ${totals.output} tokens en sortie, `
-		+ `${totals.cacheCreation} tokens de cache en écriture, ${totals.cacheRead} tokens de cache en lecture.`;
+	let lastTurnText = lastTurn ? t('tokenUsage.turn', lastTurn) : '';
+	area.textContent = lastTurnText + t('tokenUsage.total', totals);
 }
 
 function resetTokenUsage (seed) {
@@ -289,7 +289,7 @@ function exportSessionMarkdown () {
 	let url = URL.createObjectURL(blob);
 	let link = document.createElement('a');
 	link.href = url;
-	link.download = `${(currentSessionTitle || 'session').replace(/[\\/:*?"<>|]+/g, '_')}.md`;
+	link.download = `${(currentSessionTitle || defaultTitle()).replace(/[\\/:*?"<>|]+/g, '_')}.md`;
 	link.click();
 	URL.revokeObjectURL(url);
 }
@@ -303,23 +303,23 @@ function renderSessionOptions () {
 	container.textContent = '';
 
 	let details = document.createElement('details');
-	details.appendChild(create('summary', 'Options pour la session en cours'));
+	details.appendChild(create('summary', t('details.sessionOptions')));
 
-	let renameButton = create('button', 'Renommer');
+	let renameButton = create('button', t('button.rename'));
 	renameButton.type = 'button';
 	renameButton.disabled = !currentSessionId;
 	renameButton.addEventListener('click', () => renameSession(currentSessionId, currentSessionTitle));
 
-	let duplicateButton = create('button', 'Dupliquer');
+	let duplicateButton = create('button', t('button.duplicate'));
 	duplicateButton.type = 'button';
 	duplicateButton.disabled = !currentSessionId;
 	duplicateButton.addEventListener('click', () => duplicateSessionAction(currentSessionId));
 
-	let copyButton = create('button', 'Copier toute la session');
+	let copyButton = create('button', t('button.copyAllSession'));
 	copyButton.type = 'button';
 	copyButton.addEventListener('click', () => copyTextToClipboard(buildSessionMarkdown()));
 
-	let exportButton = create('button', 'Exporter toute la session');
+	let exportButton = create('button', t('button.exportAllSession'));
 	exportButton.type = 'button';
 	exportButton.addEventListener('click', exportSessionMarkdown);
 
@@ -389,7 +389,7 @@ function showInputDialog (title, message, defaultValue = '') {
 			resolve(value);
 		}
 
-		let closeButton = create('button', 'Fermer');
+		let closeButton = create('button', t('button.close'));
 		closeButton.type = 'button';
 		closeButton.addEventListener('click', () => finish(null));
 		dialog.appendChild(closeButton);
@@ -404,9 +404,9 @@ function showInputDialog (title, message, defaultValue = '') {
 		field.id = fieldId;
 		field.value = defaultValue;
 
-		let okButton = create('button', 'OK');
+		let okButton = create('button', t('button.ok'));
 		okButton.type = 'submit';
-		let cancelButton = create('button', 'Annuler');
+		let cancelButton = create('button', t('button.cancel'));
 		cancelButton.type = 'button';
 		cancelButton.addEventListener('click', () => finish(null));
 
@@ -441,17 +441,17 @@ function showConfirmDialog (title, message) {
 			resolve(value);
 		}
 
-		let closeButton = create('button', 'Fermer');
+		let closeButton = create('button', t('button.close'));
 		closeButton.type = 'button';
 		closeButton.addEventListener('click', () => finish(false));
 		dialog.appendChild(closeButton);
 		dialog.appendChild(create('h2', title));
 		dialog.appendChild(create('p', message));
 
-		let confirmButton = create('button', 'Confirmer');
+		let confirmButton = create('button', t('button.confirm'));
 		confirmButton.type = 'button';
 		confirmButton.addEventListener('click', () => finish(true));
-		let cancelButton = create('button', 'Annuler');
+		let cancelButton = create('button', t('button.cancel'));
 		cancelButton.type = 'button';
 		cancelButton.addEventListener('click', () => finish(false));
 		dialog.appendChild(confirmButton);
@@ -468,7 +468,7 @@ function showConfirmDialog (title, message) {
 // so that's the one special-cased; anything else falls back to the tool name
 // alone (no JSON fragment shown to the user).
 function describeToolAction (input) {
-	if (input && typeof input.command === 'string') return `commande : ${input.command}`;
+	if (input && typeof input.command === 'string') return t('tool.detail.command', { command: input.command });
 	return '';
 }
 
@@ -482,13 +482,13 @@ function showToolPermissionRequest (toolName, toolInput, toolUseId) {
 
 	let detail = describeToolAction(toolInput);
 	let text = detail
-		? `Claude aimerait utiliser l'outil ${toolName} avec la ${detail}`
-		: `Claude veut utiliser l'outil "${toolName}". Autoriser ?`;
+		? t('tool.request.withDetail', { tool: toolName, detail })
+		: t('tool.request.plain', { tool: toolName });
 
 	renderQuestion(text, [
-		{ label: 'Autoriser une fois', onClick: () => resumeWithToolAllowed(toolName, false) },
-		{ label: 'Toujours autoriser', onClick: () => resumeWithToolAllowed(toolName, true) },
-		{ label: 'Refuser', onClick: denyToolPermission },
+		{ label: t('button.allowOnce'), onClick: () => resumeWithToolAllowed(toolName, false) },
+		{ label: t('button.alwaysAllow'), onClick: () => resumeWithToolAllowed(toolName, true) },
+		{ label: t('button.deny'), onClick: denyToolPermission },
 	]);
 
 	setWorking(true);
@@ -498,7 +498,7 @@ function denyToolPermission () {
 	awaitingToolPermission = null;
 	hideQuestion();
 	setWorking(false);
-	setStatus('Response finished');
+	setStatus(t('status.responseFinished'));
 }
 
 // "Always allow" persists the tool for the rest of the session; "allow once"
@@ -509,7 +509,7 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	let toolsForThisRun = allowedTools.includes(toolName) ? allowedTools : [...allowedTools, toolName];
 	hideQuestion();
 	setWorking(true);
-	setStatus('Working...');
+	setStatus(t('status.working'));
 	// Hidden from the message log: this isn't a message the user actually typed.
 	await send({
 		type: 'prompt', prompt: 'continue', cwd: currentCwd,
@@ -523,7 +523,7 @@ function cacheToolUse (message) {
 		if (item.type === 'tool_use') {
 			toolUseCache.set(item.id, { name: item.name, input: item.input });
 			let detail = describeToolAction(item.input);
-			appendMessage('Outil', detail ? `${item.name}, ${detail}` : item.name);
+			appendMessage('tool', detail ? `${item.name}, ${detail}` : item.name);
 		}
 	}
 }
@@ -574,8 +574,8 @@ function onServerMessage (message) {
 		if (awaitingToolPermission) return;
 		setWorking(false);
 		hideQuestion();
-		setStatus('Response finished');
-		appendMessage('Claude a répondu', message.result ?? `(${message.subtype})`);
+		setStatus(t('status.responseFinished'));
+		appendMessage('claude', message.result ?? `(${message.subtype})`);
 		recordTokenUsage(message.usage);
 		if (awaitingFreshTitle && message.subtype !== 'aborted') {
 			awaitingFreshTitle = false;
@@ -585,8 +585,8 @@ function onServerMessage (message) {
 	}
 	if (message.type === 'error') {
 		setWorking(false);
-		setStatus('Error');
-		appendMessage('Error', message.message);
+		setStatus(t('status.error'));
+		appendMessage('error', message.message);
 		return;
 	}
 	// Everything else (streaming deltas, system/tool events, the duplicate final
@@ -605,11 +605,11 @@ async function onPromptSubmit (event) {
 	if (!text.trim()) return;
 
 	promptField.value = '';
-	appendMessage('Vous dites', text);
+	appendMessage('you', text);
 
 	if (!currentSessionId) awaitingFreshTitle = true;
 	setWorking(true);
-	setStatus('Working...');
+	setStatus(t('status.working'));
 	await send({
 		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, allowedTools,
 		...getRunOptions(),
@@ -636,7 +636,7 @@ function startNewSession () {
 	currentSessionId = null;
 	allowedTools = [];
 	awaitingFreshTitle = false;
-	setSessionTitle(DEFAULT_TITLE);
+	setSessionTitle(defaultTitle());
 	localStorage.removeItem(LAST_SESSION_KEY);
 	updateSessionAriaCurrent();
 	applyRunOptions(loadRunOptionsForSession(null));
@@ -649,7 +649,7 @@ function startNewSession () {
 function groupMessages (rawMessages) {
 	let groups = [];
 	for (let message of rawMessages) {
-		let prefix = message.role === 'user' ? 'Vous dites' : 'Claude a répondu';
+		let prefix = message.role === 'user' ? 'you' : 'claude';
 		let last = groups[groups.length - 1];
 		if (last && last.prefix === prefix) last.texts.push(message.text);
 		else groups.push({ prefix, texts: [message.text] });
@@ -680,14 +680,14 @@ async function resumeSession (sessionId) {
 // custom-title line, same as a real `claude` rename — see history.js), and
 // refreshes the list plus the live H1 if that session is the current one.
 async function renameSession (sessionId, currentTitle) {
-	let newTitle = await showInputDialog('Renommer la session', 'Nouveau titre :', currentTitle);
+	let newTitle = await showInputDialog(t('dialog.renameSessionTitle'), t('dialog.renameSessionLabel'), currentTitle);
 	if (newTitle === null) return;
 	newTitle = newTitle.trim();
 	if (!newTitle || newTitle === currentTitle) return;
 
 	let ok = await renameSessionRequest(currentCwd, sessionId, newTitle);
 	if (!ok) {
-		setStatus('Échec du renommage de la session.');
+		setStatus(t('status.renameFailed'));
 		return;
 	}
 	if (sessionId === currentSessionId) setSessionTitle(newTitle);
@@ -697,7 +697,7 @@ async function renameSession (sessionId, currentTitle) {
 async function duplicateSessionAction (sessionId) {
 	let result = await duplicateSessionRequest(currentCwd, sessionId);
 	if (!result) {
-		setStatus('Échec de la duplication de la session.');
+		setStatus(t('status.duplicateFailed'));
 		return;
 	}
 	await loadSessionList();
@@ -705,14 +705,14 @@ async function duplicateSessionAction (sessionId) {
 
 async function deleteSessionAction (sessionId, title) {
 	let confirmed = await showConfirmDialog(
-		'Supprimer la session',
-		`Supprimer définitivement la session « ${title} » ? Cette action est irréversible.`,
+		t('dialog.deleteSessionTitle'),
+		t('dialog.deleteSessionMessage', { title }),
 	);
 	if (!confirmed) return;
 
 	let ok = await deleteSessionRequest(currentCwd, sessionId);
 	if (!ok) {
-		setStatus('Échec de la suppression de la session.');
+		setStatus(t('status.deleteFailed'));
 		return;
 	}
 	if (sessionId === currentSessionId) startNewSession();
@@ -753,14 +753,14 @@ function renderSessionPage () {
 		// Collapsed by default: keeps per-session actions out of the way without
 		// needing a separate screen.
 		let details = document.createElement('details');
-		details.appendChild(create('summary', `Options pour ${session.title}`));
-		let renameButton = create('button', 'Renommer');
+		details.appendChild(create('summary', t('details.sessionOptionsFor', { title: session.title })));
+		let renameButton = create('button', t('button.rename'));
 		renameButton.type = 'button';
 		renameButton.addEventListener('click', () => renameSession(session.sessionId, session.title));
-		let duplicateButton = create('button', 'Dupliquer');
+		let duplicateButton = create('button', t('button.duplicate'));
 		duplicateButton.type = 'button';
 		duplicateButton.addEventListener('click', () => duplicateSessionAction(session.sessionId));
-		let deleteButton = create('button', 'Supprimer');
+		let deleteButton = create('button', t('button.delete'));
 		deleteButton.type = 'button';
 		deleteButton.addEventListener('click', () => deleteSessionAction(session.sessionId, session.title));
 		details.appendChild(renameButton);
@@ -812,7 +812,7 @@ function workspaceLabel (workspacePath) {
 }
 
 async function renameWorkspace (workspacePath) {
-	let newName = await showInputDialog('Renommer l\'espace de travail', 'Nouveau nom :', workspaceLabel(workspacePath));
+	let newName = await showInputDialog(t('dialog.renameWorkspaceTitle'), t('dialog.renameWorkspaceLabel'), workspaceLabel(workspacePath));
 	if (newName === null) return;
 	newName = newName.trim();
 	if (!newName) return;
@@ -867,8 +867,8 @@ async function loadWorkspaces () {
 		button.addEventListener('click', () => selectWorkspace(workspace.path));
 
 		let details = document.createElement('details');
-		details.appendChild(create('summary', `Options pour ${workspaceLabel(workspace.path)}`));
-		let renameButton = create('button', 'Renommer');
+		details.appendChild(create('summary', t('details.workspaceOptionsFor', { name: workspaceLabel(workspace.path) })));
+		let renameButton = create('button', t('button.rename'));
 		renameButton.type = 'button';
 		renameButton.addEventListener('click', () => renameWorkspace(workspace.path));
 		details.appendChild(renameButton);
@@ -915,21 +915,21 @@ function showAddWorkspaceDialog () {
 			resolve(value);
 		}
 
-		let closeButton = create('button', 'Fermer');
+		let closeButton = create('button', t('button.close'));
 		closeButton.type = 'button';
 		closeButton.addEventListener('click', () => finish(null));
 		dialog.appendChild(closeButton);
-		dialog.appendChild(create('h2', 'Ajouter un espace de travail'));
+		dialog.appendChild(create('h2', t('dialog.addWorkspaceTitle')));
 
 		let form = document.createElement('form');
 		let fieldId = 'workspacePathField';
-		let label = create('label', 'Chemin du dossier :');
+		let label = create('label', t('dialog.addWorkspacePathLabel'));
 		label.setAttribute('for', fieldId);
 		let field = document.createElement('input');
 		field.type = 'text';
 		field.id = fieldId;
 
-		let pickButton = create('button', 'Choisir un dossier');
+		let pickButton = create('button', t('button.pickFolder'));
 		pickButton.type = 'button';
 		pickButton.addEventListener('click', async () => {
 			pickButton.disabled = true;
@@ -939,9 +939,9 @@ function showAddWorkspaceDialog () {
 			else finish(null);
 		});
 
-		let okButton = create('button', 'OK');
+		let okButton = create('button', t('button.ok'));
 		okButton.type = 'submit';
-		let cancelButton = create('button', 'Annuler');
+		let cancelButton = create('button', t('button.cancel'));
 		cancelButton.type = 'button';
 		cancelButton.addEventListener('click', () => finish(null));
 
@@ -1002,7 +1002,9 @@ async function restoreLastState () {
 	}
 }
 
-function onWindowLoad () {
+async function onWindowLoad () {
+	await initI18n();
+
 	connect(onServerMessage);
 
 	let promptForm = document.getElementById('promptForm');

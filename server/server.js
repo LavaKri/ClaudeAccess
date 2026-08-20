@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
 import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession } from './history.js';
+import { getConfig, updateConfig, parseCliCommand } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,28 +15,35 @@ const config = {
 	port: 1080,
 	webdir: 'front',
 	wsPath: '/ws',
-	// CLI invocation the server spawns for each prompt. Swap this for the real
-	// `claude` binary once the streaming/permission protocol is stable (see plan.md).
-	cliCommand: 'node',
-	cliArgs: [path.join(__dirname, '..', 'mock', 'cli-mock.js')],
 };
 
 const app = express();
 app.use(express.static(config.webdir));
 app.use(express.json());
 
+app.get('/api/config', async (req, res) => {
+	res.json(await getConfig());
+});
+
+app.put('/api/config', async (req, res) => {
+	res.json(await updateConfig(req.body || {}));
+});
+
 app.get('/api/projects', async (req, res) => {
-	res.json(await listProjects());
+	let { claudeHomeDir } = await getConfig();
+	res.json(await listProjects(claudeHomeDir));
 });
 
 app.get('/api/sessions', async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
-	res.json(await listSessions(cwd));
+	let { claudeHomeDir } = await getConfig();
+	res.json(await listSessions(cwd, claudeHomeDir));
 });
 
 app.get('/api/sessions/:sessionId', async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
-	let session = await loadSession(cwd, req.params.sessionId);
+	let { claudeHomeDir } = await getConfig();
+	let session = await loadSession(cwd, req.params.sessionId, claudeHomeDir);
 	if (!session) {
 		res.status(404).json({ error: 'Session not found' });
 		return;
@@ -50,13 +58,15 @@ app.put('/api/sessions/:sessionId/title', async (req, res) => {
 		res.status(400).json({ error: 'Missing "title" field' });
 		return;
 	}
-	await setCustomTitle(cwd, req.params.sessionId, title);
+	let { claudeHomeDir } = await getConfig();
+	await setCustomTitle(cwd, req.params.sessionId, title, claudeHomeDir);
 	res.json({ ok: true });
 });
 
 app.delete('/api/sessions/:sessionId', async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
-	await deleteSession(cwd, req.params.sessionId);
+	let { claudeHomeDir } = await getConfig();
+	await deleteSession(cwd, req.params.sessionId, claudeHomeDir);
 	res.json({ ok: true });
 });
 
@@ -87,7 +97,8 @@ app.post('/api/pick-folder', async (req, res) => {
 
 app.post('/api/sessions/:sessionId/duplicate', async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
-	let newSessionId = await duplicateSession(cwd, req.params.sessionId);
+	let { claudeHomeDir } = await getConfig();
+	let newSessionId = await duplicateSession(cwd, req.params.sessionId, claudeHomeDir);
 	res.json({ sessionId: newSessionId });
 });
 
@@ -98,14 +109,26 @@ function send (ws, payload) {
 	if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
 }
 
-function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode, cwd, sessionId, allowedTools }) {
-	if (connectionState.activeChild) {
+async function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode, cwd, sessionId, allowedTools }) {
+	if (connectionState.activeChild || connectionState.starting) {
 		send(ws, { type: 'error', message: 'A prompt is already running on this connection' });
+		return;
+	}
+	// Set synchronously (before the first await below) so a second 'prompt'
+	// message arriving while getConfig() is still pending can't slip past the
+	// guard above and spawn a second concurrent child on this connection.
+	connectionState.starting = true;
+
+	let { cliCommand } = await getConfig();
+	let [command, ...baseArgs] = parseCliCommand(cliCommand);
+	if (!command) {
+		connectionState.starting = false;
+		send(ws, { type: 'error', message: 'No CLI command configured' });
 		return;
 	}
 
 	let args = [
-		...config.cliArgs,
+		...baseArgs,
 		'--prompt', prompt,
 		'--model', model || 'sonnet',
 		'--effort', effort || 'low',
@@ -114,7 +137,8 @@ function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode
 	if (sessionId) args.push('--resume', sessionId);
 	if (allowedTools?.length) args.push('--allowed-tools', allowedTools.join(','));
 
-	let child = spawn(config.cliCommand, args, { cwd: cwd || process.cwd() });
+	let child = spawn(command, args, { cwd: cwd || process.cwd() });
+	connectionState.starting = false;
 	connectionState.activeChild = child;
 
 	let lines = createInterface({ input: child.stdout });
@@ -147,7 +171,7 @@ function abortPrompt (ws, connectionState) {
 }
 
 wss.on('connection', ws => {
-	let connectionState = { activeChild: null };
+	let connectionState = { activeChild: null, starting: false };
 
 	ws.on('message', data => {
 		let request;
