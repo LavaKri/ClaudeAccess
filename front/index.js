@@ -6,6 +6,12 @@ import {
 	deleteSession as deleteSessionRequest,
 	duplicateSession as duplicateSessionRequest,
 } from './HistoryClient.js';
+import MarkdownIt from './vendor/markdown-it.esm.min.mjs';
+
+// html is left at its default (false): raw HTML in a message is escaped
+// rather than inserted, since message text ultimately comes from model
+// output and must not be trusted as markup.
+const md = new MarkdownIt();
 
 const LAST_WORKSPACE_KEY = 'claudeAccessible.lastWorkspace';
 const LAST_SESSION_KEY = 'claudeAccessible.lastSessionId';
@@ -141,6 +147,17 @@ function buildMessageOptions (text) {
 	return details;
 }
 
+// Renders the markdown of a conversation-turn message (user prompt or
+// Claude's answer) into a container element. Rendered once, from the
+// complete final text — never incrementally while a result is streaming in —
+// so JAWS never sees the content it's reading change out from under it.
+function renderMarkdownMessage (text) {
+	let container = document.createElement('div');
+	container.className = 'message-text';
+	container.innerHTML = md.render(text);
+	return container;
+}
+
 // Re-renders only the message groups of the current page. Each group is its
 // own H2 (heading text: "<prefix>: <preview of the first message>"), so JAWS
 // users can navigate group-to-group with heading-navigation keys, followed by
@@ -155,7 +172,7 @@ function renderMessages () {
 		messageArea.appendChild(create('h2', `${group.prefix}: ${previewText(group.texts[0])}`));
 		let isConversationTurn = group.prefix === 'Vous dites' || group.prefix === 'Claude a répondu';
 		for (let text of group.texts) {
-			messageArea.appendChild(create('p', text));
+			messageArea.appendChild(isConversationTurn ? renderMarkdownMessage(text) : create('p', text));
 			if (isConversationTurn) messageArea.appendChild(buildMessageOptions(text));
 		}
 	}
