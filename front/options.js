@@ -43,6 +43,8 @@ async function populateForm () {
 	populateSelect(document.getElementById('defaultEffortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
 	populateSelect(document.getElementById('defaultPermissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
 
+	document.getElementById('hostInput').value = config.host;
+	document.getElementById('portInput').value = config.port;
 	document.getElementById('cliCommandInput').value = config.cliCommand;
 	document.getElementById('claudeHomeDirInput').value = config.claudeHomeDir;
 }
@@ -59,6 +61,8 @@ async function onOptionsSubmit (event) {
 		defaultModel: document.getElementById('defaultModelSelect').value,
 		defaultEffort: document.getElementById('defaultEffortSelect').value,
 		defaultPermissionMode: document.getElementById('defaultPermissionModeSelect').value,
+		host: document.getElementById('hostInput').value,
+		port: Number(document.getElementById('portInput').value),
 		cliCommand: document.getElementById('cliCommandInput').value,
 		claudeHomeDir: document.getElementById('claudeHomeDirInput').value,
 	};
@@ -71,10 +75,26 @@ async function onOptionsSubmit (event) {
 	}
 }
 
+// Discards unsaved edits by re-filling the form from the last config actually
+// persisted on the server (ConfigClient's cache already reflects that, no
+// fresh network round-trip needed) — a plain native type="reset" button
+// wouldn't do this correctly, since these fields are populated from fetched
+// config rather than HTML default attributes.
+async function onResetClick () {
+	await populateForm();
+	setStatus(t('status.optionsReset'));
+}
+
+function onBackClick () {
+	window.location.href = 'index.html';
+}
+
 async function onWindowLoad () {
 	await initI18n();
 	await populateForm();
 	document.getElementById('optionsForm').addEventListener('submit', onOptionsSubmit);
+	document.getElementById('resetOptionsButton').addEventListener('click', onResetClick);
+	document.getElementById('backButton').addEventListener('click', onBackClick);
 }
 
 window.addEventListener('load', onWindowLoad);

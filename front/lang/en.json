@@ -94,10 +94,10 @@
 	"tokenUsage.turn": "This turn: {{input}} input tokens, {{output}} output tokens, {{cacheCreation}} cache-write tokens, {{cacheRead}} cache-read tokens. ",
 	"tokenUsage.total": "Session total: {{input}} input tokens, {{output}} output tokens, {{cacheCreation}} cache-write tokens, {{cacheRead}} cache-read tokens.",
 
-	"link.options": "Options",
+	"link.options": "Application options",
 	"link.backToApp": "Back to the app",
-	"options.pageTitle": "Options",
-	"options.heading": "Options",
+	"options.pageTitle": "Application options",
+	"options.heading": "Application options",
 
 	"heading.generalOptions": "General",
 	"heading.appearanceOptions": "Appearance and usability",
@@ -119,10 +119,15 @@
 	"label.sessionsPerPage": "Sessions per page: ",
 	"label.completionSound": "Sound when a response finishes",
 
+	"label.host": "Server listen host: ",
+	"label.port": "Server listen port: ",
 	"label.cliCommand": "Command to invoke the Claude Code CLI: ",
 	"label.claudeHomeDir": "Claude Code sessions storage directory: ",
 
 	"button.save": "Save",
+	"button.reset": "Reset",
+	"button.back": "Back",
 	"status.optionsSaved": "Options saved.",
-	"status.optionsSaveFailed": "Failed to save options."
+	"status.optionsSaveFailed": "Failed to save options.",
+	"status.optionsReset": "Form reset."
 }

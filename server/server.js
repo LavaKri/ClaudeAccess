@@ -10,9 +10,14 @@ import { getConfig, updateConfig, parseCliCommand } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// host/port come from config (see the options page's "advanced settings");
+// read once at startup since the HTTP/WS listener can't rebind itself live —
+// changing them only takes effect on the next server restart.
+const { host: startupHost, port: startupPort } = await getConfig();
+
 const config = {
-	host: 'localhost',
-	port: 1080,
+	host: startupHost,
+	port: startupPort,
 	webdir: 'front',
 	wsPath: '/ws',
 };

@@ -94,10 +94,10 @@
 	"tokenUsage.turn": "Ce tour : {{input}} tokens en entrée, {{output}} tokens en sortie, {{cacheCreation}} tokens de cache en écriture, {{cacheRead}} tokens de cache en lecture. ",
 	"tokenUsage.total": "Total de la session : {{input}} tokens en entrée, {{output}} tokens en sortie, {{cacheCreation}} tokens de cache en écriture, {{cacheRead}} tokens de cache en lecture.",
 
-	"link.options": "Options",
+	"link.options": "Options de l'application",
 	"link.backToApp": "Retour à l'application",
-	"options.pageTitle": "Options",
-	"options.heading": "Options",
+	"options.pageTitle": "Options de l'application",
+	"options.heading": "Options de l'application",
 
 	"heading.generalOptions": "Général",
 	"heading.appearanceOptions": "Apparence et ergonomie",
@@ -119,10 +119,15 @@
 	"label.sessionsPerPage": "Sessions par page : ",
 	"label.completionSound": "Son à la fin de chaque réponse",
 
+	"label.host": "Hôte d'écoute du serveur : ",
+	"label.port": "Port d'écoute du serveur : ",
 	"label.cliCommand": "Commande pour invoquer Claude Code CLI : ",
 	"label.claudeHomeDir": "Répertoire de stockage des sessions Claude Code : ",
 
 	"button.save": "Enregistrer",
+	"button.reset": "Réinitialiser",
+	"button.back": "Retour",
 	"status.optionsSaved": "Options enregistrées.",
-	"status.optionsSaveFailed": "Échec de l'enregistrement des options."
+	"status.optionsSaveFailed": "Échec de l'enregistrement des options.",
+	"status.optionsReset": "Formulaire réinitialisé."
 }

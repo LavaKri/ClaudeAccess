@@ -12,6 +12,10 @@ const CONFIG_DIR = path.join(os.homedir(), '.claude-accessible');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 const DEFAULTS = {
+	// Server's own listen address. Changing this only takes effect on the
+	// next server restart — the HTTP/WS listener can't rebind itself live.
+	host: 'localhost',
+	port: 1080,
 	// Directory Claude Code itself stores its state in — sessions live under
 	// <claudeHomeDir>/projects/, and the known-workspaces list lives in
 	// <parent of claudeHomeDir>/.claude.json. See history.js.
@@ -43,6 +47,9 @@ function sanitize (patch) {
 		if (key === 'messagesPerPage' || key === 'sessionsPerPage') {
 			let n = Number(value);
 			if (Number.isInteger(n) && n > 0) clean[key] = n;
+		} else if (key === 'port') {
+			let n = Number(value);
+			if (Number.isInteger(n) && n > 0 && n <= 65535) clean[key] = n;
 		} else if (key === 'completionSound') {
 			clean[key] = Boolean(value);
 		} else if (typeof value === 'string') {

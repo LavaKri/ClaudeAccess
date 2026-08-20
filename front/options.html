@@ -1,10 +1,10 @@
 <!DOCTYPE HTML>
 <head>
 <meta charset="UTF-8"/>
-<title data-i18n="options.pageTitle">Options</title>
+<title data-i18n="options.pageTitle">Options de l'application</title>
 </head><body>
 <p><a href="index.html" data-i18n="link.backToApp">Retour à l'application</a></p>
-<h1 data-i18n="options.heading">Options</h1>
+<h1 data-i18n="options.heading">Options de l'application</h1>
 <div id="optionsStatusArea" role="status" aria-live="polite"></div>
 <form id="optionsForm">
 <section aria-labelledby="generalOptionsH2">
@@ -33,12 +33,18 @@
 </section>
 <section aria-labelledby="advancedOptionsH2">
 <h2 id="advancedOptionsH2" data-i18n="heading.advancedOptions">Paramètres avancés</h2>
+<label for="hostInput" data-i18n="label.host">Hôte d'écoute du serveur : </label>
+<input type="text" id="hostInput" name="host" size="20">
+<label for="portInput" data-i18n="label.port">Port d'écoute du serveur : </label>
+<input type="number" id="portInput" name="port" min="1" max="65535">
 <label for="cliCommandInput" data-i18n="label.cliCommand">Commande pour invoquer Claude Code CLI : </label>
 <input type="text" id="cliCommandInput" name="cliCommand" size="70">
 <label for="claudeHomeDirInput" data-i18n="label.claudeHomeDir">Répertoire de stockage des sessions Claude Code : </label>
 <input type="text" id="claudeHomeDirInput" name="claudeHomeDir" size="70">
 </section>
 <button type="submit" id="saveOptionsButton" data-i18n="button.save">Enregistrer</button>
+<button type="button" id="resetOptionsButton" data-i18n="button.reset">Réinitialiser</button>
+<button type="button" id="backButton" data-i18n="button.back">Retour</button>
 </form>
 <script type="module" src="options.js"></script>
 </body></html>
