@@ -10,7 +10,7 @@
     {
       "name": "claude-access-mock",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start:mock"],
+      "runtimeArgs": ["run", "dev:mock"],
       "port": 1080
     }
   ]

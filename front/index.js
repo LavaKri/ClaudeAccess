@@ -629,8 +629,15 @@ async function resumeWithToolAllowed (toolName, permanent) {
 // original path unchanged if it isn't actually under currentCwd.
 function toProjectRelativePath (absolutePath) {
 	if (!currentCwd) return absolutePath;
+	// currentCwd and a tool's own absolute paths don't necessarily use the same
+	// slash style (e.g. a workspace added as "C:/foo/bar" vs. a tool reporting
+	// "C:\foo\bar\file.cpp") — compare on a forward-slash-normalized form so
+	// the prefix still matches, but keep the original separators of
+	// absolutePath in the returned relative path.
+	let normalize = p => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
 	let cwd = currentCwd.replace(/[\\/]+$/, '');
-	if (absolutePath.slice(0, cwd.length).toLowerCase() !== cwd.toLowerCase()) return absolutePath;
+	let normalizedCwd = normalize(currentCwd);
+	if (normalize(absolutePath).slice(0, normalizedCwd.length) !== normalizedCwd) return absolutePath;
 	return absolutePath.slice(cwd.length).replace(/^[\\/]+/, '');
 }
 
@@ -775,13 +782,26 @@ function startNewSession () {
 
 // Groups consecutive messages of the same role, same as appendMessage does
 // for the live stream, so a resumed history reads the same way.
+const ROLE_TO_PREFIX = { user: 'you', assistant: 'claude', tool: 'tool', notification: 'notification' };
+
+// Groups consecutive same-role messages, same as appendMessage does for the
+// live stream (including the same exact-repeat dedup — real session files
+// have been seen to carry back-to-back assistant entries with identical text,
+// same as a retried tool_use during a live run), so a resumed history reads
+// the same way. "tool" entries carry a `tool` field ({ kind, label } — see
+// history.js's classifyToolUse()) instead of `text`.
 function groupMessages (rawMessages) {
 	let groups = [];
 	for (let message of rawMessages) {
-		let prefix = message.role === 'user' ? 'you' : 'claude';
+		let prefix = ROLE_TO_PREFIX[message.role] || 'claude';
+		let entry = prefix === 'tool' ? message.tool : message.text;
 		let last = groups[groups.length - 1];
-		if (last && last.prefix === prefix) last.texts.push(message.text);
-		else groups.push({ prefix, texts: [message.text] });
+		let mergingIntoLast = Boolean(last) && last.prefix === prefix;
+		let lastEntry = mergingIntoLast ? last.texts[last.texts.length - 1] : undefined;
+		if (mergingIntoLast && JSON.stringify(lastEntry) === JSON.stringify(entry)) continue;
+
+		if (mergingIntoLast) last.texts.push(entry);
+		else groups.push({ prefix, texts: [entry] });
 	}
 	return groups;
 }

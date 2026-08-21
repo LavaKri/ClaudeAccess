@@ -90,7 +90,37 @@ function extractText (content) {
 	return '';
 }
 
-async function readSessionFile (filePath) {
+// Strips cwd from an absolute path read by a tool, so a resumed session's
+// "files read" list shows a path relative to the project root, same as the
+// live stream does — see front/index.js's toProjectRelativePath(). Falls back
+// to the original path unchanged if it isn't actually under cwd, or if cwd
+// isn't known (listSessions() doesn't need it for anything else).
+function toProjectRelativePath (absolutePath, cwd) {
+	if (!cwd) return absolutePath;
+	// Workspace paths and a tool's own absolute paths don't necessarily use the
+	// same slash style (e.g. a workspace added as "C:/foo/bar" vs. a tool
+	// reporting "C:\foo\bar\file.cpp") — compare on a forward-slash-normalized
+	// form so the prefix still matches, but keep the original separators in the
+	// returned relative path (whatever the tool itself used).
+	let normalize = p => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+	let normalizedCwd = normalize(cwd);
+	if (normalize(absolutePath).slice(0, normalizedCwd.length) !== normalizedCwd) return absolutePath;
+	return absolutePath.slice(cwd.replace(/[\\/]+$/, '').length).replace(/^[\\/]+/, '');
+}
+
+// Same classification as the live stream's cacheToolUse() in front/index.js
+// (Read w/ file_path -> file, "command" input -> command, else the tool's own
+// name) — kept as a small server-side duplicate rather than shared code,
+// consistent with this project's no-bundler/no-shared-module setup.
+function classifyToolUse (name, input, cwd) {
+	if (name === 'Read' && typeof input?.file_path === 'string') {
+		return { kind: 'file', label: toProjectRelativePath(input.file_path, cwd) };
+	}
+	if (typeof input?.command === 'string') return { kind: 'command', label: input.command };
+	return { kind: 'other', label: name };
+}
+
+async function readSessionFile (filePath, cwd) {
 	let raw;
 	try {
 		raw = await fs.readFile(filePath, 'utf8');
@@ -141,6 +171,29 @@ async function readSessionFile (filePath) {
 			tokenUsage.cacheRead += entry.message.usage.cache_read_input_tokens || 0;
 		}
 
+		// Auto-injected by Claude Code itself between turns (e.g. a background
+		// shell task reporting it stopped) rather than actually typed by the
+		// user — tagged with origin.kind on the entry (confirmed on a real
+		// captured session file). Surfaced as its own "notification" role
+		// instead of "user", so the front end doesn't attribute it to the user
+		// under a "Vous dites" heading.
+		if (entry.type === 'user' && entry.origin?.kind === 'task-notification') {
+			let notificationText = extractText(entry.message?.content);
+			if (notificationText) messages.push({ role: 'notification', text: notificationText });
+			continue;
+		}
+
+		// A single content array element is either a text block or a tool_use
+		// block, never both together (confirmed on a real captured session
+		// file) — tool_use blocks carry no usable "text", so they're handled
+		// here as their own "tool" role entry instead of falling through to
+		// the text extraction below.
+		let toolUse = entry.type === 'assistant' && (entry.message?.content ?? []).find(item => item.type === 'tool_use');
+		if (toolUse) {
+			messages.push({ role: 'tool', tool: classifyToolUse(toolUse.name, toolUse.input, cwd) });
+			continue;
+		}
+
 		let text = extractText(entry.message?.content);
 		if (!text) continue;
 		if (entry.type === 'assistant') lastMessagePreview = text.slice(0, 100);
@@ -181,7 +234,7 @@ export async function listSessions (cwd, homeDir) {
 		return [];
 	}
 
-	let sessions = (await Promise.all(files.map(f => readSessionFile(path.join(dir, f)))))
+	let sessions = (await Promise.all(files.map(f => readSessionFile(path.join(dir, f), cwd))))
 		.filter(Boolean);
 
 	sessions.sort((a, b) => a.messageIds.size - b.messageIds.size);
@@ -197,7 +250,7 @@ export async function listSessions (cwd, homeDir) {
 
 export async function loadSession (cwd, sessionId, homeDir) {
 	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
-	let session = await readSessionFile(path.join(dir, `${sessionId}.jsonl`));
+	let session = await readSessionFile(path.join(dir, `${sessionId}.jsonl`), cwd);
 	return session && withTitle(session);
 }
 

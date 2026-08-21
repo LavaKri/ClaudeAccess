@@ -70,6 +70,7 @@
 	"message.prefix.you": "Vous dites",
 	"message.prefix.claude": "Claude a répondu",
 	"message.prefix.tool": "Outil",
+	"message.prefix.notification": "Notification système",
 	"message.prefix.error": "Erreur",
 
 	"button.close": "Fermer",
