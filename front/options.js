@@ -38,6 +38,7 @@ async function populateForm () {
 	populateAutoDetectSelect(document.getElementById('themeSelect'), THEMES, 'theme', config.theme);
 	document.getElementById('messagesPerPageInput').value = config.messagesPerPage;
 	document.getElementById('sessionsPerPageInput').value = config.sessionsPerPage;
+	document.getElementById('titlePreviewWordCountInput').value = config.titlePreviewWordCount;
 	document.getElementById('completionSoundInput').checked = config.completionSound;
 
 	populateSelect(document.getElementById('defaultModelSelect'), MODELS, 'option.model', config.defaultModel);
@@ -66,6 +67,7 @@ async function onOptionsSubmit (event) {
 		theme: document.getElementById('themeSelect').value,
 		messagesPerPage: Number(document.getElementById('messagesPerPageInput').value),
 		sessionsPerPage: Number(document.getElementById('sessionsPerPageInput').value),
+		titlePreviewWordCount: Number(document.getElementById('titlePreviewWordCountInput').value),
 		completionSound: document.getElementById('completionSoundInput').checked,
 		defaultModel: document.getElementById('defaultModelSelect').value,
 		defaultEffort: document.getElementById('defaultEffortSelect').value,

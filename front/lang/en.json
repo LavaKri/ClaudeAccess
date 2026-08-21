@@ -10,6 +10,8 @@
 	"button.refreshSessions": "Refresh sessions",
 	"button.newerSessions": "Newer sessions",
 	"button.olderSessions": "Older sessions",
+	"button.newerWorkspaces": "Newer workspaces",
+	"button.olderWorkspaces": "Older workspaces",
 
 	"aria.messages": "Messages",
 	"aria.pagination": "Message pagination",
@@ -88,6 +90,17 @@
 	"tool.request.withDetail": "Claude would like to use the {{tool}} tool with {{detail}}",
 	"tool.request.plain": "Claude wants to use the \"{{tool}}\" tool. Allow it?",
 	"tool.detail.command": "command: {{command}}",
+
+	"details.toolsUsed": "Tools used",
+	"tool.summary.filesCount": "{{count}} file(s) read",
+	"tool.summary.commandsCount": "{{count}} command(s) run",
+	"tool.summary.othersCount": "{{count}} other tool(s) invoked",
+	"tool.list.filesHeading": "Files read",
+	"tool.list.commandsHeading": "Commands run",
+	"tool.list.othersHeading": "Other tools used",
+	"tool.export.file": "File read: {{path}}",
+	"tool.export.command": "Command run: {{command}}",
+	"tool.export.other": "Tool used: {{tool}}",
 	"button.allowOnce": "Allow once",
 	"button.alwaysAllow": "Always allow",
 	"button.deny": "Deny",
@@ -118,6 +131,7 @@
 
 	"label.messagesPerPage": "Messages per page: ",
 	"label.sessionsPerPage": "Sessions per page: ",
+	"label.titlePreviewWordCount": "Word count for replies' title preview: ",
 	"label.completionSound": "Sound when a response finishes",
 
 	"label.host": "Server listen host: ",

@@ -28,9 +28,30 @@ export function encodeProjectPath (projectPath) {
 	return normalized.replace(/[/\\:._]/g, '-');
 }
 
+// Newest mtime among a project's session files — a cheap proxy for "most
+// recently used" (a plain fs.stat per file, no JSONL parsing needed) used to
+// sort the workspace list the same way the session list is sorted.
+async function projectLastUsed (dir) {
+	let files;
+	try {
+		files = (await fs.readdir(dir)).filter(f => f.endsWith('.jsonl'));
+	} catch {
+		return null;
+	}
+	let stats = await Promise.all(files.map(async f => {
+		try {
+			return (await fs.stat(path.join(dir, f))).mtimeMs;
+		} catch {
+			return 0;
+		}
+	}));
+	return stats.length ? Math.max(...stats) : null;
+}
+
 // Known working directories, deduped by their encoded folder name (Windows
 // paths can appear twice in ~/.claude.json, once with \ and once with /),
-// limited to the ones that actually have a history directory.
+// limited to the ones that actually have a history directory, sorted most
+// recently used first (same ordering as listSessions below).
 export async function listProjects (homeDir) {
 	let existingEncoded;
 	try {
@@ -53,8 +74,11 @@ export async function listProjects (homeDir) {
 		let encodedName = encodeProjectPath(projectPath);
 		if (!existingEncoded.has(encodedName) || seen.has(encodedName)) continue;
 		seen.add(encodedName);
-		projects.push({ path: projectPath, encodedName });
+		let lastUsed = await projectLastUsed(path.join(projectsDir(homeDir), encodedName));
+		projects.push({ path: projectPath, encodedName, lastUsed });
 	}
+
+	projects.sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
 	return projects;
 }
 

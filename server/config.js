@@ -26,6 +26,10 @@ const DEFAULTS = {
 	cliCommand: 'claude',
 	messagesPerPage: 20,
 	sessionsPerPage: 10,
+	// Word count used for a "Claude a répondu" group's H2 preview when the
+	// message doesn't start with a markdown heading of its own — see
+	// front/index.js's previewText().
+	titlePreviewWordCount: 20,
 	// '' = auto-detect from the browser's languages at load time.
 	language: '',
 	// '' = auto-detect from the browser's prefers-color-scheme, falling back
@@ -44,7 +48,7 @@ function sanitize (patch) {
 	for (let key of Object.keys(DEFAULTS)) {
 		if (!(key in patch)) continue;
 		let value = patch[key];
-		if (key === 'messagesPerPage' || key === 'sessionsPerPage') {
+		if (key === 'messagesPerPage' || key === 'sessionsPerPage' || key === 'titlePreviewWordCount') {
 			let n = Number(value);
 			if (Number.isInteger(n) && n > 0) clean[key] = n;
 		} else if (key === 'port') {

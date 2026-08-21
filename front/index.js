@@ -113,7 +113,9 @@ function loadRunOptionsForSession (sessionId) {
 	}
 }
 
-const PREVIEW_WORD_COUNT = 12;
+// Overridden from config (titlePreviewWordCount) once it's fetched in
+// onWindowLoad.
+let PREVIEW_WORD_COUNT = 20;
 
 // First sentence of the text if it's short enough, otherwise the first
 // PREVIEW_WORD_COUNT words — used so screen reader users can jump message to
@@ -129,6 +131,17 @@ function previewText (text) {
 		: words.join(' ');
 }
 
+// If `text` starts with a markdown ATX heading ("# ", "## ", ...), returns
+// its clean title (no leading "#"s) and the remaining text with that heading
+// line stripped out — so the heading can be used as-is for the group's own
+// H2 instead of being both shown raw in the preview *and* re-rendered as a
+// duplicate H2 by markdown-it right below it. Returns null otherwise.
+function splitLeadingHeading (text) {
+	let match = text.match(/^\s*#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*(?:\r?\n|$)/);
+	if (!match) return null;
+	return { title: match[1].trim(), rest: text.slice(match[0].length) };
+}
+
 // All messages of the current conversation, paginated for display rather than
 // shown as one continuously growing log — a continuously auto-scrolling
 // region is exactly the kind of thing that's hard to use with JAWS.
@@ -140,8 +153,14 @@ let PAGE_SIZE = 20;
 let messages = [];
 let currentPage = 1;
 
+// Tool-use groups don't count as their own pagination unit (see
+// renderMessages) — only "you"/"claude"/"error" groups do.
+function countablePageGroups () {
+	return messages.filter(group => group.prefix !== 'tool').length;
+}
+
 function pageCount () {
-	return Math.max(1, Math.ceil(messages.length / PAGE_SIZE));
+	return Math.max(1, Math.ceil(countablePageGroups() / PAGE_SIZE));
 }
 
 function updatePaginationControls () {
@@ -190,21 +209,74 @@ function renderMarkdownMessage (text) {
 	return container;
 }
 
-// Re-renders only the message groups of the current page. Each group is its
-// own H2 (heading text: "<prefix>: <preview of the first message>"), so JAWS
-// users can navigate group-to-group with heading-navigation keys, followed by
-// one paragraph per message in that group.
+// A tool-use group's texts are structured entries ({ kind, label }) rather
+// than plain strings — see cacheToolUse(). Builds the collapsed-by-default
+// <details>/<summary> replacing the old "Outil" H2: the summary gives counts,
+// the body lists files read / commands run / other tools invoked separately.
+function buildToolDetails (entries) {
+	let files = entries.filter(e => e.kind === 'file').map(e => e.label);
+	let commands = entries.filter(e => e.kind === 'command').map(e => e.label);
+	let others = entries.filter(e => e.kind === 'other').map(e => e.label);
+
+	let summaryParts = [];
+	if (files.length) summaryParts.push(t('tool.summary.filesCount', { count: files.length }));
+	if (commands.length) summaryParts.push(t('tool.summary.commandsCount', { count: commands.length }));
+	if (others.length) summaryParts.push(t('tool.summary.othersCount', { count: others.length }));
+
+	let details = document.createElement('details');
+	details.appendChild(create('summary', summaryParts.join(', ') || t('details.toolsUsed')));
+
+	function appendList (heading, items) {
+		if (!items.length) return;
+		details.appendChild(create('h3', heading));
+		let ul = document.createElement('ul');
+		for (let item of items) ul.appendChild(create('li', item));
+		details.appendChild(ul);
+	}
+	appendList(t('tool.list.filesHeading'), files);
+	appendList(t('tool.list.commandsHeading'), commands);
+	appendList(t('tool.list.othersHeading'), others);
+
+	return details;
+}
+
+function toolEntryText (entry) {
+	if (entry.kind === 'file') return t('tool.export.file', { path: entry.label });
+	if (entry.kind === 'command') return t('tool.export.command', { command: entry.label });
+	return t('tool.export.other', { tool: entry.label });
+}
+
+// Re-renders only the message groups of the current page. Each conversation/
+// error group is its own H2 (heading text: "<prefix>: <preview or leading
+// heading of the first message>"), so JAWS users can navigate group-to-group
+// with heading-navigation keys, followed by one paragraph per message in that
+// group. Tool-use groups render as a collapsed details/summary instead of an
+// H2, wherever they fall relative to the surrounding conversation groups, and
+// don't consume a pagination slot of their own (see countablePageGroups()).
 function renderMessages () {
 	currentPage = Math.min(Math.max(currentPage, 1), pageCount());
 	let start = (currentPage - 1) * PAGE_SIZE;
+	let end = start + PAGE_SIZE;
 
 	let messageArea = document.getElementById('messageArea');
 	messageArea.textContent = '';
-	for (let group of messages.slice(start, start + PAGE_SIZE)) {
-		messageArea.appendChild(create('h2', `${t('message.prefix.' + group.prefix)}: ${previewText(group.texts[0])}`));
+	let countableIndex = -1;
+	for (let group of messages) {
+		if (group.prefix === 'tool') {
+			if (countableIndex >= start && countableIndex < end) messageArea.appendChild(buildToolDetails(group.texts));
+			else if (countableIndex === -1 && start === 0) messageArea.appendChild(buildToolDetails(group.texts));
+			continue;
+		}
+
+		countableIndex++;
+		if (countableIndex < start || countableIndex >= end) continue;
+
 		let isConversationTurn = group.prefix === 'you' || group.prefix === 'claude';
-		for (let text of group.texts) {
-			messageArea.appendChild(isConversationTurn ? renderMarkdownMessage(text) : create('p', text));
+		let heading = group.prefix === 'claude' ? splitLeadingHeading(group.texts[0]) : null;
+		messageArea.appendChild(create('h2', `${t('message.prefix.' + group.prefix)}: ${heading ? heading.title : previewText(group.texts[0])}`));
+		for (let [index, text] of group.texts.entries()) {
+			let renderedText = (index === 0 && heading) ? heading.rest : text;
+			messageArea.appendChild(isConversationTurn ? renderMarkdownMessage(renderedText) : create('p', renderedText));
 		}
 		// One options menu per H2 group, not one per individual message within
 		// it — "Copier" then copies the whole group's messages joined together.
@@ -223,12 +295,15 @@ function goToPage (page) {
 // same kind (prefix) as the one right before it, and silently dropping it
 // when it's an exact repeat of the last message in that group — which is what
 // happens when a tool retried after a permission grant reports the exact same
-// tool_use again. If the user was already viewing the last page, follows
-// along to the new last page; otherwise leaves their current page alone.
+// tool_use again (text is a plain string for "you"/"claude"/"error" groups,
+// or a { kind, label } entry for "tool" groups — see cacheToolUse()). If the
+// user was already viewing the last page, follows along to the new last page;
+// otherwise leaves their current page alone.
 function appendMessage (prefix, text) {
 	let lastGroup = messages[messages.length - 1];
 	let mergingIntoLast = Boolean(lastGroup) && lastGroup.prefix === prefix;
-	if (mergingIntoLast && lastGroup.texts[lastGroup.texts.length - 1] === text) return;
+	let lastText = mergingIntoLast ? lastGroup.texts[lastGroup.texts.length - 1] : undefined;
+	if (mergingIntoLast && JSON.stringify(lastText) === JSON.stringify(text)) return;
 
 	let wasOnLastPage = currentPage >= pageCount();
 	if (mergingIntoLast) lastGroup.texts.push(text);
@@ -308,7 +383,9 @@ function recordTokenUsage (usage) {
 // not just the current page) joined with a "---" separator, for the
 // copy/export-whole-session options below.
 function buildSessionMarkdown () {
-	return messages.flatMap(group => group.texts).join('\n\n---\n\n');
+	return messages
+		.flatMap(group => group.prefix === 'tool' ? group.texts.map(toolEntryText) : group.texts)
+		.join('\n\n---\n\n');
 }
 
 function exportSessionMarkdown () {
@@ -546,12 +623,35 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	});
 }
 
+// Strips currentCwd from an absolute path read by a tool, so the "files read"
+// list in the tool-use details shows a path relative to the project root
+// rather than a full (and much noisier) absolute one. Falls back to the
+// original path unchanged if it isn't actually under currentCwd.
+function toProjectRelativePath (absolutePath) {
+	if (!currentCwd) return absolutePath;
+	let cwd = currentCwd.replace(/[\\/]+$/, '');
+	if (absolutePath.slice(0, cwd.length).toLowerCase() !== cwd.toLowerCase()) return absolutePath;
+	return absolutePath.slice(cwd.length).replace(/^[\\/]+/, '');
+}
+
+// Classifies one tool_use block for the collapsible tool-use summary (see
+// buildToolDetails): a file read, a shell command, or anything else. "Read"
+// with a "file_path" input and "command" input (Bash, the only shape
+// confirmed so far — see the mock) are the two special-cased shapes; anything
+// else falls back to just the tool's name.
+function classifyToolUse (name, input) {
+	if (name === 'Read' && typeof input?.file_path === 'string') {
+		return { kind: 'file', label: toProjectRelativePath(input.file_path) };
+	}
+	if (typeof input?.command === 'string') return { kind: 'command', label: input.command };
+	return { kind: 'other', label: name };
+}
+
 function cacheToolUse (message) {
 	for (let item of message.message?.content ?? []) {
 		if (item.type === 'tool_use') {
 			toolUseCache.set(item.id, { name: item.name, input: item.input });
-			let detail = describeToolAction(item.input);
-			appendMessage('tool', detail ? `${item.name}, ${detail}` : item.name);
+			appendMessage('tool', classifyToolUse(item.name, item.input));
 		}
 	}
 }
@@ -881,19 +981,18 @@ function saveExtraWorkspaces (paths) {
 	localStorage.setItem(EXTRA_WORKSPACES_KEY, JSON.stringify(paths));
 }
 
-async function loadWorkspaces () {
-	let serverWorkspaces = await fetchProjects();
-	// Workspaces added manually via "Ajouter un espace de travail" that
-	// `claude` doesn't know about yet (no session run there so far) — kept
-	// client-side, and dropped from here automatically once the server list
-	// picks them up for real.
-	let extraPaths = loadExtraWorkspaces()
-		.filter(path => !serverWorkspaces.some(workspace => normalizeWorkspacePath(workspace.path) === normalizeWorkspacePath(path)));
-	workspaces = [...serverWorkspaces, ...extraPaths.map(path => ({ path }))];
+// Sessions-list-style pagination — simple older/newer buttons, no page-number
+// input — reusing SESSIONS_PAGE_SIZE (same config field as the session list,
+// per the user's request). Workspaces already arrive most-recently-used
+// first from the server (see history.js's listProjects), except for the
+// client-only "extra" ones appended after, which always sort last.
+let workspacesPage = 0;
 
+function renderWorkspacePage () {
 	let container = document.getElementById('workspaceList');
 	container.textContent = '';
-	for (let workspace of workspaces) {
+	let start = workspacesPage * SESSIONS_PAGE_SIZE;
+	for (let workspace of workspaces.slice(start, start + SESSIONS_PAGE_SIZE)) {
 		let button = create('button', workspaceLabel(workspace.path));
 		button.type = 'button';
 		button.title = workspace.path;
@@ -913,6 +1012,28 @@ async function loadWorkspaces () {
 		item.appendChild(details);
 		container.appendChild(item);
 	}
+
+	document.getElementById('newerWorkspacesButton').disabled = workspacesPage <= 0;
+	document.getElementById('olderWorkspacesButton').disabled = start + SESSIONS_PAGE_SIZE >= workspaces.length;
+}
+
+function goToWorkspacesPage (page) {
+	workspacesPage = Math.max(0, page);
+	renderWorkspacePage();
+}
+
+async function loadWorkspaces () {
+	let serverWorkspaces = await fetchProjects();
+	// Workspaces added manually via "Ajouter un espace de travail" that
+	// `claude` doesn't know about yet (no session run there so far) — kept
+	// client-side, and dropped from here automatically once the server list
+	// picks them up for real.
+	let extraPaths = loadExtraWorkspaces()
+		.filter(path => !serverWorkspaces.some(workspace => normalizeWorkspacePath(workspace.path) === normalizeWorkspacePath(path)));
+	workspaces = [...serverWorkspaces, ...extraPaths.map(path => ({ path }))];
+
+	workspacesPage = 0;
+	renderWorkspacePage();
 }
 
 async function selectWorkspace (workspacePath) {
@@ -1044,6 +1165,7 @@ async function onWindowLoad () {
 	let config = await fetchConfig();
 	PAGE_SIZE = config.messagesPerPage;
 	SESSIONS_PAGE_SIZE = config.sessionsPerPage;
+	PREVIEW_WORD_COUNT = config.titlePreviewWordCount;
 	completionSoundEnabled = config.completionSound;
 	populateSelect(document.getElementById('modelSelect'), MODELS, 'option.model', config.defaultModel);
 	populateSelect(document.getElementById('effortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
@@ -1068,6 +1190,15 @@ async function onWindowLoad () {
 
 	document.getElementById('newerSessionsButton').addEventListener('click', () => goToSessionsPage(sessionsPage - 1));
 	document.getElementById('olderSessionsButton').addEventListener('click', () => goToSessionsPage(sessionsPage + 1));
+
+	document.getElementById('newerWorkspacesButton').addEventListener('click', () => goToWorkspacesPage(workspacesPage - 1));
+	document.getElementById('olderWorkspacesButton').addEventListener('click', () => goToWorkspacesPage(workspacesPage + 1));
+
+	document.getElementById('prompt').addEventListener('keydown', event => {
+		if (event.key !== 'Enter' || !event.ctrlKey) return;
+		event.preventDefault();
+		if (!document.getElementById('sendButton').disabled) promptForm.requestSubmit();
+	});
 
 	document.getElementById('firstPageButton').addEventListener('click', () => goToPage(1));
 	document.getElementById('prevPageButton').addEventListener('click', () => goToPage(currentPage - 1));

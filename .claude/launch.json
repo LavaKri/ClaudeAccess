@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],
       "port": 1080
+    },
+    {
+      "name": "claude-access-mock",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:mock"],
+      "port": 1080
     }
   ]
 }

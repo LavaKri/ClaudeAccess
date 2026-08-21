@@ -10,6 +10,8 @@
 	"button.refreshSessions": "Rafraîchir les sessions",
 	"button.newerSessions": "Sessions plus récentes",
 	"button.olderSessions": "Sessions plus anciennes",
+	"button.newerWorkspaces": "Espaces de travail plus récents",
+	"button.olderWorkspaces": "Espaces de travail plus anciens",
 
 	"aria.messages": "Messages",
 	"aria.pagination": "Pagination des messages",
@@ -24,7 +26,7 @@
 	"heading.prompt": "Prompt",
 	"label.prompt": "Prompt : ",
 	"button.send": "Envoyer",
-	"button.abort": "Annuler l'envoi",
+	"button.abort": "Interrompre",
 
 	"label.model": "Modèle : ",
 	"option.model.haiku": "Haiku",
@@ -88,6 +90,17 @@
 	"tool.request.withDetail": "Claude aimerait utiliser l'outil {{tool}} avec la {{detail}}",
 	"tool.request.plain": "Claude veut utiliser l'outil « {{tool}} ». Autoriser ?",
 	"tool.detail.command": "commande : {{command}}",
+
+	"details.toolsUsed": "Outils utilisés",
+	"tool.summary.filesCount": "{{count}} fichier(s) lu(s)",
+	"tool.summary.commandsCount": "{{count}} commande(s) exécutée(s)",
+	"tool.summary.othersCount": "{{count}} autre(s) outil(s) invoqué(s)",
+	"tool.list.filesHeading": "Fichiers lus",
+	"tool.list.commandsHeading": "Commandes exécutées",
+	"tool.list.othersHeading": "Autres outils utilisés",
+	"tool.export.file": "Fichier lu : {{path}}",
+	"tool.export.command": "Commande exécutée : {{command}}",
+	"tool.export.other": "Outil utilisé : {{tool}}",
 	"button.allowOnce": "Autoriser une fois",
 	"button.alwaysAllow": "Toujours autoriser",
 	"button.deny": "Refuser",
@@ -118,6 +131,7 @@
 
 	"label.messagesPerPage": "Messages par page : ",
 	"label.sessionsPerPage": "Sessions par page : ",
+	"label.titlePreviewWordCount": "Nombre de mots dans l'aperçu du titre des réponses : ",
 	"label.completionSound": "Son à la fin de chaque réponse",
 
 	"label.host": "Hôte d'écoute du serveur : ",
