@@ -9,6 +9,7 @@ import {
 	renameSession as renameSessionRequest,
 	deleteSession as deleteSessionRequest,
 	duplicateSession as duplicateSessionRequest,
+	moveSession as moveSessionRequest,
 } from './HistoryClient.js';
 import MarkdownIt from './vendor/markdown-it.esm.min.mjs';
 
@@ -427,10 +428,16 @@ function renderSessionOptions () {
 	exportButton.type = 'button';
 	exportButton.addEventListener('click', exportSessionMarkdown);
 
+	let moveButton = create('button', t('button.move'));
+	moveButton.type = 'button';
+	moveButton.disabled = !currentSessionId;
+	moveButton.addEventListener('click', () => moveSessionAction(currentSessionId));
+
 	details.appendChild(renameButton);
 	details.appendChild(duplicateButton);
 	details.appendChild(copyButton);
 	details.appendChild(exportButton);
+	details.appendChild(moveButton);
 	container.appendChild(details);
 }
 
@@ -564,6 +571,63 @@ function showConfirmDialog (title, message) {
 		dialog.addEventListener('cancel', () => finish(false), { once: true });
 		dialog.showModal();
 		confirmButton.focus();
+	});
+}
+
+// Reusable modal move flow: shows a title, a <select> of every known
+// workspace except the session's current one, and OK/Annuler/Fermer.
+// Resolves with the chosen workspace path, or null if cancelled/closed.
+function showMoveSessionDialog (currentWorkspacePath) {
+	return new Promise(resolve => {
+		let dialog = document.getElementById('questionArea');
+		dialog.textContent = '';
+		dialog.oncancel = null;
+
+		function finish (value) {
+			dialog.textContent = '';
+			if (dialog.open) dialog.close();
+			resolve(value);
+		}
+
+		let closeButton = create('button', t('button.close'));
+		closeButton.type = 'button';
+		closeButton.addEventListener('click', () => finish(null));
+		dialog.appendChild(closeButton);
+		dialog.appendChild(create('h2', t('dialog.moveSessionTitle')));
+
+		let form = document.createElement('form');
+		let fieldId = 'moveSessionTargetField';
+		let label = create('label', t('dialog.moveSessionLabel'));
+		label.setAttribute('for', fieldId);
+		let field = document.createElement('select');
+		field.id = fieldId;
+		for (let workspace of workspaces) {
+			if (workspace.path === currentWorkspacePath) continue;
+			let option = document.createElement('option');
+			option.value = workspace.path;
+			option.textContent = workspaceLabel(workspace.path);
+			field.appendChild(option);
+		}
+
+		let okButton = create('button', t('button.ok'));
+		okButton.type = 'submit';
+		let cancelButton = create('button', t('button.cancel'));
+		cancelButton.type = 'button';
+		cancelButton.addEventListener('click', () => finish(null));
+
+		form.appendChild(label);
+		form.appendChild(field);
+		form.appendChild(okButton);
+		form.appendChild(cancelButton);
+		form.addEventListener('submit', event => {
+			event.preventDefault();
+			finish(field.value || null);
+		});
+		dialog.appendChild(form);
+
+		dialog.addEventListener('cancel', () => finish(null), { once: true });
+		dialog.showModal();
+		field.focus();
 	});
 }
 
@@ -868,6 +932,24 @@ async function deleteSessionAction (sessionId, title) {
 	await loadSessionList();
 }
 
+// Moves the session to another workspace's history, then reloads both lists
+// (per the user's request) — the workspace list because a workspace only
+// known client-side (see loadExtraWorkspaces) may now be known to `claude`
+// for real, the session list because the moved session is gone from here.
+async function moveSessionAction (sessionId) {
+	let targetCwd = await showMoveSessionDialog(currentCwd);
+	if (!targetCwd) return;
+
+	let ok = await moveSessionRequest(currentCwd, sessionId, targetCwd);
+	if (!ok) {
+		setStatus(t('status.moveFailed'));
+		return;
+	}
+	if (sessionId === currentSessionId) startNewSession();
+	await loadWorkspaces();
+	await loadSessionList();
+}
+
 function updateSessionAriaCurrent () {
 	for (let button of document.querySelectorAll('#sessionList button[data-session-id]')) {
 		if (button.dataset.sessionId === currentSessionId) button.setAttribute('aria-current', 'true');
@@ -918,9 +1000,13 @@ function renderSessionPage () {
 		let deleteButton = create('button', t('button.delete'));
 		deleteButton.type = 'button';
 		deleteButton.addEventListener('click', () => deleteSessionAction(session.sessionId, title));
+		let moveButton = create('button', t('button.move'));
+		moveButton.type = 'button';
+		moveButton.addEventListener('click', () => moveSessionAction(session.sessionId));
 		details.appendChild(renameButton);
 		details.appendChild(duplicateButton);
 		details.appendChild(deleteButton);
+		details.appendChild(moveButton);
 
 		let item = document.createElement('li');
 		item.appendChild(button);

@@ -276,3 +276,16 @@ export async function duplicateSession (cwd, sessionId, homeDir) {
 	await fs.copyFile(path.join(dir, `${sessionId}.jsonl`), path.join(dir, `${newSessionId}.jsonl`));
 	return newSessionId;
 }
+
+// Moves the session's raw file to another project's history directory,
+// keeping the same session id: a session is identified only by its filename,
+// never by anything tied to the workspace, so relocating the file is all
+// `claude --resume` needs to pick it up from its new home. The target
+// directory is created if this is the first session ever moved there (mirrors
+// what `claude` itself does the first time it runs in a fresh cwd).
+export async function moveSession (cwd, sessionId, targetCwd, homeDir) {
+	let sourceDir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
+	let targetDir = path.join(projectsDir(homeDir), encodeProjectPath(targetCwd));
+	await fs.mkdir(targetDir, { recursive: true });
+	await fs.rename(path.join(sourceDir, `${sessionId}.jsonl`), path.join(targetDir, `${sessionId}.jsonl`));
+}

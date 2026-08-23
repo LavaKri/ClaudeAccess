@@ -55,6 +55,7 @@
 	"status.renameFailed": "Failed to rename the session.",
 	"status.duplicateFailed": "Failed to duplicate the session.",
 	"status.deleteFailed": "Failed to delete the session.",
+	"status.moveFailed": "Failed to move the session.",
 
 	"details.messageOptions": "Options for this message",
 	"button.copy": "Copy",
@@ -64,6 +65,7 @@
 	"button.rename": "Rename",
 	"button.duplicate": "Duplicate",
 	"button.delete": "Delete",
+	"button.move": "Move...",
 	"button.copyAllSession": "Copy whole session",
 	"button.exportAllSession": "Export whole session",
 
@@ -87,6 +89,8 @@
 	"dialog.renameWorkspaceLabel": "New name:",
 	"dialog.addWorkspaceTitle": "Add a workspace",
 	"dialog.addWorkspacePathLabel": "Folder path:",
+	"dialog.moveSessionTitle": "Move session",
+	"dialog.moveSessionLabel": "Destination workspace:",
 
 	"tool.request.withDetail": "Claude would like to use the {{tool}} tool with {{detail}}",
 	"tool.request.plain": "Claude wants to use the \"{{tool}}\" tool. Allow it?",

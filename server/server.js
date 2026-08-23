@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
-import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession } from './history.js';
+import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -122,6 +122,18 @@ app.post('/api/sessions/:sessionId/duplicate', async (req, res) => {
 	let { claudeHomeDir } = await getConfig();
 	let newSessionId = await duplicateSession(cwd, req.params.sessionId, claudeHomeDir);
 	res.json({ sessionId: newSessionId });
+});
+
+app.post('/api/sessions/:sessionId/move', async (req, res) => {
+	let cwd = String(req.query.cwd || process.cwd());
+	let targetCwd = String(req.body?.targetCwd || '').trim();
+	if (!targetCwd) {
+		res.status(400).json({ error: 'Missing "targetCwd" field' });
+		return;
+	}
+	let { claudeHomeDir } = await getConfig();
+	await moveSession(cwd, req.params.sessionId, targetCwd, claudeHomeDir);
+	res.json({ ok: true });
 });
 
 const server = http.createServer(app);
