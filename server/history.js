@@ -25,7 +25,7 @@ function claudeConfigPath (homeDir) {
 
 export function encodeProjectPath (projectPath) {
 	let normalized = projectPath.replace(/[\\/]+$/, '');
-	return normalized.replace(/[/\\:._]/g, '-');
+	return normalized.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
 // Newest mtime among a project's session files — a cheap proxy for "most
@@ -275,6 +275,28 @@ export async function duplicateSession (cwd, sessionId, homeDir) {
 	let newSessionId = randomUUID();
 	await fs.copyFile(path.join(dir, `${sessionId}.jsonl`), path.join(dir, `${newSessionId}.jsonl`));
 	return newSessionId;
+}
+
+// Deletes a workspace entirely: its session history directory (recursively —
+// wiping every .jsonl the way deleteSession does one at a time) plus its
+// entry in ~/.claude.json's "projects" object, so `claude` itself no longer
+// lists it either. Both steps are best-effort independently (missing
+// directory or config entry isn't an error — the caller just wants the
+// workspace gone, from whichever of the two places it still exists in).
+export async function deleteProject (projectPath, homeDir) {
+	let dir = path.join(projectsDir(homeDir), encodeProjectPath(projectPath));
+	await fs.rm(dir, { recursive: true, force: true });
+
+	let configPath = claudeConfigPath(homeDir);
+	try {
+		let config = JSON.parse(await fs.readFile(configPath, 'utf8'));
+		if (config.projects && Object.prototype.hasOwnProperty.call(config.projects, projectPath)) {
+			delete config.projects[projectPath];
+			await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+		}
+	} catch {
+		// No ~/.claude.json, or no matching entry — nothing more to do.
+	}
 }
 
 // Moves the session's raw file to another project's history directory,

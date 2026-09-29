@@ -10,6 +10,7 @@ import {
 	deleteSession as deleteSessionRequest,
 	duplicateSession as duplicateSessionRequest,
 	moveSession as moveSessionRequest,
+	deleteProject as deleteProjectRequest,
 } from './HistoryClient.js';
 import MarkdownIt from './vendor/markdown-it.esm.min.mjs';
 
@@ -1064,6 +1065,41 @@ async function renameWorkspace (workspacePath) {
 	await loadWorkspaces();
 }
 
+// Deletes the workspace's whole history (session files + its ~/.claude.json
+// entry — see history.js's deleteProject) after a confirm dialog, same
+// pattern as deleteSessionAction. Also drops it from the client-only "extra
+// workspaces" list (loadExtraWorkspaces) in case it was never known to
+// `claude` for real. Switches to a fresh, unset workspace if the deleted one
+// was the current one, since currentCwd would otherwise point at nothing.
+async function deleteWorkspaceAction (workspacePath) {
+	let name = workspaceLabel(workspacePath);
+	let confirmed = await showConfirmDialog(
+		t('dialog.deleteWorkspaceTitle'),
+		t('dialog.deleteWorkspaceMessage', { name }),
+	);
+	if (!confirmed) return;
+
+	let ok = await deleteProjectRequest(workspacePath);
+	if (!ok) {
+		setStatus(t('status.deleteWorkspaceFailed'));
+		return;
+	}
+
+	saveExtraWorkspaces(loadExtraWorkspaces().filter(path => normalizeWorkspacePath(path) !== normalizeWorkspacePath(workspacePath)));
+
+	let names = loadWorkspaceNames();
+	delete names[workspacePath];
+	saveWorkspaceNames(names);
+
+	if (normalizeWorkspacePath(workspacePath) === normalizeWorkspacePath(currentCwd)) {
+		currentCwd = '';
+		localStorage.removeItem(LAST_WORKSPACE_KEY);
+		startNewSession();
+		await loadSessionList();
+	}
+	await loadWorkspaces();
+}
+
 function updateWorkspaceAriaCurrent () {
 	for (let button of document.querySelectorAll('#workspaceList button[data-workspace-path]')) {
 		if (button.dataset.workspacePath === currentCwd) button.setAttribute('aria-current', 'true');
@@ -1112,6 +1148,11 @@ function renderWorkspacePage () {
 		renameButton.type = 'button';
 		renameButton.addEventListener('click', () => renameWorkspace(workspace.path));
 		details.appendChild(renameButton);
+
+		let deleteButton = create('button', t('button.delete'));
+		deleteButton.type = 'button';
+		deleteButton.addEventListener('click', () => deleteWorkspaceAction(workspace.path));
+		details.appendChild(deleteButton);
 
 		let item = document.createElement('li');
 		item.appendChild(button);

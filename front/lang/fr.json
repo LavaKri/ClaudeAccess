@@ -56,6 +56,7 @@
 	"status.duplicateFailed": "Échec de la duplication de la session.",
 	"status.deleteFailed": "Échec de la suppression de la session.",
 	"status.moveFailed": "Échec du déplacement de la session.",
+	"status.deleteWorkspaceFailed": "Échec de la suppression de l'espace de travail.",
 
 	"details.messageOptions": "Options pour ce message",
 	"button.copy": "Copier",
@@ -91,6 +92,8 @@
 	"dialog.addWorkspacePathLabel": "Chemin du dossier :",
 	"dialog.moveSessionTitle": "Déplacer la session",
 	"dialog.moveSessionLabel": "Espace de travail de destination :",
+	"dialog.deleteWorkspaceTitle": "Supprimer l'espace de travail",
+	"dialog.deleteWorkspaceMessage": "Supprimer définitivement l'espace de travail « {{name}} » et toutes ses sessions ? Cette action est irréversible.",
 
 	"tool.request.withDetail": "Claude aimerait utiliser l'outil {{tool}} avec la {{detail}}",
 	"tool.request.plain": "Claude veut utiliser l'outil « {{tool}} ». Autoriser ?",

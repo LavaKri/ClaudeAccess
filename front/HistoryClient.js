@@ -7,6 +7,13 @@ export async function fetchProjects () {
 	return response.json();
 }
 
+export async function deleteProject (cwd) {
+	let response = await fetch(`/api/projects?cwd=${encodeURIComponent(cwd)}`, {
+		method: 'DELETE',
+	});
+	return response.ok;
+}
+
 export async function fetchSessions (cwd) {
 	let response = await fetch(`/api/sessions?cwd=${encodeURIComponent(cwd)}`);
 	return response.json();

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
-import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession } from './history.js';
+import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession, deleteProject } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,9 +41,30 @@ app.put('/api/config', async (req, res) => {
 	res.json(await updateConfig(req.body || {}));
 });
 
+// no-store: the list changes as a side effect of deleteProject() below, and a
+// stale cached response (browser HTTP cache keyed on this same URL) would
+// otherwise make a just-deleted workspace linger in the UI until a hard
+// reload — a plain F5 wasn't enough to reproduce this reliably.
 app.get('/api/projects', async (req, res) => {
 	let { claudeHomeDir } = await getConfig();
+	res.set('Cache-Control', 'no-store');
 	res.json(await listProjects(claudeHomeDir));
+});
+
+app.delete('/api/projects', async (req, res) => {
+	let cwd = String(req.query.cwd || '');
+	if (!cwd) {
+		res.status(400).json({ error: 'Missing "cwd" query parameter' });
+		return;
+	}
+	let { claudeHomeDir } = await getConfig();
+	try {
+		await deleteProject(cwd, claudeHomeDir);
+	} catch (err) {
+		res.status(500).json({ error: err.message });
+		return;
+	}
+	res.json({ ok: true });
 });
 
 app.get('/api/sessions', async (req, res) => {

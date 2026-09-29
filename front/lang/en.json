@@ -56,6 +56,7 @@
 	"status.duplicateFailed": "Failed to duplicate the session.",
 	"status.deleteFailed": "Failed to delete the session.",
 	"status.moveFailed": "Failed to move the session.",
+	"status.deleteWorkspaceFailed": "Failed to delete the workspace.",
 
 	"details.messageOptions": "Options for this message",
 	"button.copy": "Copy",
@@ -91,6 +92,8 @@
 	"dialog.addWorkspacePathLabel": "Folder path:",
 	"dialog.moveSessionTitle": "Move session",
 	"dialog.moveSessionLabel": "Destination workspace:",
+	"dialog.deleteWorkspaceTitle": "Delete workspace",
+	"dialog.deleteWorkspaceMessage": "Permanently delete workspace \"{{name}}\" and all its sessions? This action cannot be undone.",
 
 	"tool.request.withDetail": "Claude would like to use the {{tool}} tool with {{detail}}",
 	"tool.request.plain": "Claude wants to use the \"{{tool}}\" tool. Allow it?",
