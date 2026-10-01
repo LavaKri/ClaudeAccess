@@ -197,7 +197,7 @@ async function readSessionFile (filePath, cwd) {
 		let text = extractText(entry.message?.content);
 		if (!text) continue;
 		if (entry.type === 'assistant') lastMessagePreview = text.slice(0, 100);
-		messages.push({ role: entry.message?.role || entry.type, text });
+		messages.push({ role: entry.message?.role || entry.type, text, model: entry.message?.model, effort: entry.effort });
 	}
 
 	return {

@@ -15,6 +15,7 @@
 
 	"aria.messages": "Messages",
 	"aria.pagination": "Pagination des messages",
+	"aria.runOptions": "Options d'exécution",
 	"button.firstPage": "Première page",
 	"button.prevPage": "Page précédente",
 	"label.page": "Page ",
@@ -72,6 +73,8 @@
 
 	"message.prefix.you": "Vous dites",
 	"message.prefix.claude": "Claude a répondu",
+	"message.prefix.claudeWithModel": "Réponse de {{model}}",
+	"message.prefix.claudeWithModelEffort": "Réponse de {{model}}, effort {{effort}}",
 	"message.prefix.tool": "Outil",
 	"message.prefix.notification": "Notification système",
 	"message.prefix.error": "Erreur",

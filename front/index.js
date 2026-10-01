@@ -154,6 +154,13 @@ function splitLeadingHeading (text) {
 let PAGE_SIZE = 20;
 let messages = [];
 let currentPage = 1;
+// The model actually used for the in-flight turn, read off the streamed
+// "assistant" message (the only place the CLI reports it) and attached to
+// the "claude" group once the turn's "result" arrives.
+let lastAssistantModel = null;
+// The stream isn't known to report the effort level, so the one requested
+// when the prompt was sent is used (history.js reads it from the session file).
+let lastRequestedEffort = null;
 
 // Tool-use groups don't count as their own pagination unit (see
 // renderMessages) — only "you"/"claude"/"error" groups do.
@@ -275,7 +282,13 @@ function renderMessages () {
 
 		let isConversationTurn = group.prefix === 'you' || group.prefix === 'claude';
 		let heading = group.prefix === 'claude' ? splitLeadingHeading(group.texts[0]) : null;
-		messageArea.appendChild(create('h2', `${t('message.prefix.' + group.prefix)}: ${heading ? heading.title : previewText(group.texts[0])}`));
+		let headingText = (group.prefix === 'claude' && group.model)
+			? t(group.effort ? 'message.prefix.claudeWithModelEffort' : 'message.prefix.claudeWithModel', {
+				model: group.model,
+				effort: group.effort ? t('option.effort.' + group.effort).toLowerCase() : '',
+			})
+			:`${t('message.prefix.' + group.prefix)}: ${heading ? heading.title : previewText(group.texts[0])}`;
+		messageArea.appendChild(create('h2', headingText));
 		for (let [index, text] of group.texts.entries()) {
 			let renderedText = (index === 0 && heading) ? heading.rest : text;
 			messageArea.appendChild(isConversationTurn ? renderMarkdownMessage(renderedText) : create('p', renderedText));
@@ -301,15 +314,20 @@ function goToPage (page) {
 // or a { kind, label } entry for "tool" groups — see cacheToolUse()). If the
 // user was already viewing the last page, follows along to the new last page;
 // otherwise leaves their current page alone.
-function appendMessage (prefix, text) {
+function appendMessage (prefix, text, model, effort) {
 	let lastGroup = messages[messages.length - 1];
 	let mergingIntoLast = Boolean(lastGroup) && lastGroup.prefix === prefix;
 	let lastText = mergingIntoLast ? lastGroup.texts[lastGroup.texts.length - 1] : undefined;
 	if (mergingIntoLast && JSON.stringify(lastText) === JSON.stringify(text)) return;
 
 	let wasOnLastPage = currentPage >= pageCount();
-	if (mergingIntoLast) lastGroup.texts.push(text);
-	else messages.push({ prefix, texts: [text] });
+	if (mergingIntoLast) {
+		lastGroup.texts.push(text);
+		if (model) lastGroup.model = model;
+		if (effort) lastGroup.effort = effort;
+	} else {
+		messages.push({ prefix, texts: [text], model, effort });
+	}
 
 	if (wasOnLastPage) {
 		currentPage = pageCount();
@@ -681,10 +699,12 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	setWorking(true);
 	setStatus(t('status.working'));
 	// Hidden from the message log: this isn't a message the user actually typed.
+	let runOptions = getRunOptions();
+	lastRequestedEffort = runOptions.effort;
 	await send({
 		type: 'prompt', prompt: 'continue', cwd: currentCwd,
 		sessionId: currentSessionId, allowedTools: toolsForThisRun,
-		...getRunOptions(),
+		...runOptions,
 	});
 }
 
@@ -760,7 +780,10 @@ function onServerMessage (message) {
 		renderSessionOptions();
 	}
 
-	if (message.type === 'assistant') cacheToolUse(message);
+	if (message.type === 'assistant') {
+		cacheToolUse(message);
+		if (message.message?.model) lastAssistantModel = message.message.model;
+	}
 	if (message.type === 'user' && handleIfToolDenied(message)) return;
 
 	// Confirmed for real (see plan.md): field is "suggestion", fires after "result".
@@ -776,7 +799,7 @@ function onServerMessage (message) {
 		hideQuestion();
 		setStatus(t('status.responseFinished'));
 		playSound('notify.mp3');
-		appendMessage('claude', message.result ?? `(${message.subtype})`);
+		appendMessage('claude', message.result ?? `(${message.subtype})`, lastAssistantModel, lastRequestedEffort);
 		recordTokenUsage(message.usage);
 		if (awaitingFreshTitle && message.subtype !== 'aborted') {
 			awaitingFreshTitle = false;
@@ -811,9 +834,11 @@ async function onPromptSubmit (event) {
 	if (!currentSessionId) awaitingFreshTitle = true;
 	setWorking(true);
 	setStatus(t('status.working'));
+	let runOptions = getRunOptions();
+	lastRequestedEffort = runOptions.effort;
 	await send({
 		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, allowedTools,
-		...getRunOptions(),
+		...runOptions,
 	});
 }
 
@@ -826,6 +851,7 @@ async function onAbortClick () {
 function resetConversationView () {
 	messages = [];
 	currentPage = 1;
+	lastAssistantModel = null;
 	renderMessages();
 	hideQuestion();
 	setWorking(false);
@@ -865,8 +891,13 @@ function groupMessages (rawMessages) {
 		let lastEntry = mergingIntoLast ? last.texts[last.texts.length - 1] : undefined;
 		if (mergingIntoLast && JSON.stringify(lastEntry) === JSON.stringify(entry)) continue;
 
-		if (mergingIntoLast) last.texts.push(entry);
-		else groups.push({ prefix, texts: [entry] });
+		if (mergingIntoLast) {
+			last.texts.push(entry);
+			if (message.model) last.model = message.model;
+			if (message.effort) last.effort = message.effort;
+		} else {
+			groups.push({ prefix, texts: [entry], model: message.model, effort: message.effort });
+		}
 	}
 	return groups;
 }

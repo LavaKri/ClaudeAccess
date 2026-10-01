@@ -6,6 +6,14 @@
 <link rel="stylesheet" href="style.css">
 </head><body>
 <p id="optionsLinkArea" class="app-header"><a href="options.html" data-i18n="link.options">Options</a></p>
+<div id="optionsArea" class="app-header" role="group" aria-label="Run options" data-i18n-attr="aria-label:aria.runOptions">
+<label for="modelSelect" data-i18n="label.model">Model: </label>
+<select id="modelSelect" name="model"></select>
+<label for="effortSelect" data-i18n="label.effort">Effort: </label>
+<select id="effortSelect" name="effort"></select>
+<label for="permissionModeSelect" data-i18n="label.permissionMode">Permission mode: </label>
+<select id="permissionModeSelect" name="permissionMode"></select>
+</div>
 <section id="workflowArea" class="app-sidebar" aria-labelledby="workflowAreaH2">
 <h2 id="workflowAreaH2" data-i18n="heading.workspace">Workspace</h2>
 <ul id="workspaceList"></ul>
@@ -14,14 +22,14 @@
 <button type="button" id="addWorkspaceButton" data-i18n="button.addWorkspace">Add a workspace...</button>
 </section>
 <section id="sessionsArea" class="app-sidebar" aria-labelledby="sessionsAreaH2">
-<h2 id="sessionsAreaH2" data-i18n="heading.sessions">Sessions</h2>
+<h1 id="sessionsAreaH2" data-i18n="heading.sessions">Sessions</h1>
 <button type="button" id="newSessionButton" data-i18n="button.newSession">New session</button>
 <button type="button" id="refreshSessionsButton" data-i18n="button.refreshSessions">Refresh sessions</button>
 <ul id="sessionList"></ul>
 <button type="button" id="newerSessionsButton" data-i18n="button.newerSessions">Newer sessions</button>
 <button type="button" id="olderSessionsButton" data-i18n="button.olderSessions">Older sessions</button>
 </section>
-<h1 id="sessionTitle" class="app-main" data-i18n="session.defaultTitle">ClaudeAccess</h1>
+<h2 id="sessionTitle" class="app-main" data-i18n="session.defaultTitle">ClaudeAccess</h2>
 <div id="statusArea" class="app-main" role="status" aria-live="polite">
 </div>
 <div id="sessionOptionsArea" class="app-main">
@@ -42,20 +50,12 @@
 <dialog id="questionArea">
 </dialog>
 <section id="promptArea" class="app-main app-prompt" aria-labelledby="promptAreaH2">
-<h2 id="promptAreaH2" data-i18n="heading.prompt">Prompt</h2>
+<h1 id="promptAreaH2" data-i18n="heading.prompt">Prompt</h1>
 <form id="promptForm">
 <label for="prompt" data-i18n="label.prompt">Prompt: </label>
 <textarea id="prompt" name="prompt" rows="10" cols="100"></textarea>
 <button type="submit" id="sendButton" data-i18n="button.send">Send</button>
 <button type="button" id="abortButton" disabled data-i18n="button.abort">Abort</button>
-<div id="optionsArea">
-<label for="modelSelect" data-i18n="label.model">Model: </label>
-<select id="modelSelect" name="model"></select>
-<label for="effortSelect" data-i18n="label.effort">Effort: </label>
-<select id="effortSelect" name="effort"></select>
-<label for="permissionModeSelect" data-i18n="label.permissionMode">Permission mode: </label>
-<select id="permissionModeSelect" name="permissionMode"></select>
-</div>
 </form>
 </section>
 <script type="module" src="index.js"></script>
