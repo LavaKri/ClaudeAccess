@@ -52,8 +52,31 @@ denial at all.
   `runPrompt` (keep stdin open, send the prompt as JSON, relay requests over
   the WebSocket, update the mock).
 
-**Status.** Leaning towards C, after a spike. Nothing implemented. The popup
-already shows the raw CLI error text so real cases can be collected.
+**Cost of B (token estimate, nothing measured).** Today the CLI is cut as soon
+as a denial shows up, then resumed with `continue`. B would let the run finish
+first. Extra cost: the model sees the denial and keeps going for roughly 1 to
+3 more API calls (it explains, or tries something else). Each call re-reads
+the session context, mostly from cache (billed far below fresh input), plus a
+few hundred output tokens. The resume after the user's answer costs the same
+in A and B. The longer the session, the more each extra call weighs. The usage
+the CLI reports per run is already recorded (`recordTokenUsage`), so it can be
+measured on a real case.
+
+The bigger drawback of B is behaviour, not tokens: after a refused `Write`,
+the model may try a workaround such as writing the file through `Bash`. If
+`Bash` is already "always allowed" that runs without a popup. Cutting early
+avoids it. B also does nothing against the false alarms, which come from
+mistaking ordinary errors for denials: not aborting on them costs no tokens.
+
+**Compromise leaning.** (1) Abort at once when the error text contains "you
+haven't granted it yet" (known case, cheapest). (2) Do not abort on any other
+tool error; if `permission_denials` is non-empty at the end of the run, show
+the popup then (rare unknown-wording case, so its extra cost is rare too).
+(3) Option C removes all of this cost: the CLI waits in place.
+
+**Status.** Leaning towards C, after a spike, with the compromise above as the
+interim. Nothing implemented. The popup already shows the raw CLI error text
+so real cases can be collected.
 
 **Next step.** Capture a real request with `claude` on `haiku` + `low` in a
 scratch directory: exact field names, behaviour with `--resume`, behaviour in
@@ -75,6 +98,14 @@ and a recursive delete ran without a popup while the mode was `default`
 `Edit(path/**)`), or `permission_suggestions` echoed back under option C of
 point 1. Also: show the current "always allowed" list somewhere, and decide
 whether it lives for the session only or is persisted.
+
+**Launch state of the list.** Wanted: at browser launch the "always allowed"
+list reflects the permission mode (for example `Edit` and `Write` allowed in
+"Accept edits"), can be changed during the session, and is never saved.
+Today it simply starts empty whatever the mode, and is never saved. Open:
+what exactly each mode should pre-fill, since the CLI already applies the mode
+itself (pre-filling would only be a display, or would add redundant
+`--allowed-tools`).
 
 **Status.** Undecided. Depends on point 1.
 
@@ -108,15 +139,7 @@ should return raw `tool_use` blocks and let the browser describe them, so
 history, live details and progress share one rule. Parked on purpose: tool
 details are informational only, not worth a risky change yet.
 
-## 5. `<synthetic>` "No response requested." messages
-
-Written by the CLI itself (model `<synthetic>`, zero tokens) when a `continue`
-resume has nothing to continue. Normal CLI behaviour, but the permission loop
-multiplied them, and they stay in the session file on disk. To decide: hide
-them in the live log and in loaded history (the display can hide them, the
-file keeps them). They can also serve as a loop signal for point 1.
-
-## 6. Permission mode descriptions
+## 5. Permission mode descriptions
 
 The one-line descriptions on the main page come from the Claude Code docs,
 not from tests. Docs say `acceptEdits` also auto-approves `mkdir`, `touch`,
@@ -126,11 +149,14 @@ availability depends on model and account, and the docs say a session with no
 explicit mode may start in auto: ClaudeAccess always passes
 `--permission-mode`, so this does not apply, but check it stays true.
 
-## 7. Two instances: ClaudeAccess (stable) and ClaudeDev (workbench)
+## 6. Two instances: ClaudeAccess (stable) and ClaudeDev (workbench)
 
 `ClaudeDev` is a folder copy (renamed, port 1081, config dir `~/.claude-dev`,
 launcher `start-claudedev.bat`), without any git files by choice, to rule out
-pushing to the wrong repository.
+pushing to the wrong repository. It is a snapshot taken before the
+server-side workspace list, the "existing workspaces" picker, the run options
+read from session files and the hidden `<synthetic>` / `continue` messages:
+none of that is in ClaudeDev.
 
 Open:
 - How to carry changes between the two now that they share no history.
@@ -140,14 +166,15 @@ Open:
   need environment variables (for example `CLAUDEACCESS_PORT` and
   `CLAUDEACCESS_CONFIG_DIR`); not implemented.
 - ClaudeDev starts with default settings: `~/.claude-access/config.json` was
-  not copied.
+  not copied. Its workspace list (browser side in that copy) starts empty.
 - `package.json` still points `repository.url` to the original repository.
 - ClaudeDev still has `plan.md` at its root; ClaudeAccess moved it to `doc/`.
 
-## 8. Not yet committed
+## 7. Workspace list: leftovers
 
-Moving `plan.md` to `doc/` and updating its references (CLAUDE.md, code
-comments) is uncommitted, as is this file. The last commit
-("Progress line, permission mode descriptions, richer tool permission popup
-(WIP)") already contains the plan notes written that day, at the old path
-`plan.md`.
+The list now lives in `~/.claude-access/workspaces.json` (see `plan.md`).
+Still browser-side: the run options remembered per session (a fallback only,
+the session file wins) and the "always allowed" tools (deliberately never
+saved). The legacy browser keys are left in place after migration and could be
+cleaned up later. The migration only runs when the server has no list: opening
+the app first from a browser with empty data creates an empty list.

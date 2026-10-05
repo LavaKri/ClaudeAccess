@@ -173,6 +173,8 @@ let currentPage = 1;
 // "assistant" message (the only place the CLI reports it) and attached to
 // the "claude" group once the turn's "result" arrives.
 let lastAssistantModel = null;
+// Set when the in-flight turn's reply is a CLI-written "<synthetic>" filler.
+let syntheticTurn = false;
 // The stream isn't known to report the effort level, so the one requested
 // when the prompt was sent is used (history.js reads it from the session file).
 let lastRequestedEffort = null;
@@ -879,7 +881,11 @@ function onServerMessage (message) {
 
 	if (message.type === 'assistant') {
 		cacheToolUse(message);
-		if (message.message?.model) lastAssistantModel = message.message.model;
+		// "<synthetic>" is the CLI's own placeholder for filler replies (such as
+		// "No response requested." to a resume with nothing to continue): not a
+		// real model, and nothing worth showing.
+		if (message.message?.model === '<synthetic>') syntheticTurn = true;
+		else if (message.message?.model) lastAssistantModel = message.message.model;
 	}
 	if (message.type === 'user' && handleIfToolDenied(message)) return;
 	updateProgressFromMessage(message);
@@ -895,6 +901,12 @@ function onServerMessage (message) {
 		if (awaitingToolPermission) return;
 		setWorking(false);
 		hideQuestion();
+		if (syntheticTurn) {
+			// Filler turn (see above): back to idle without a log entry or a sound.
+			syntheticTurn = false;
+			setStatus('');
+			return;
+		}
 		setStatus(t('status.responseFinished'));
 		playSound('notify.mp3');
 		appendMessage('claude', message.result ?? `(${message.subtype})`, lastAssistantModel, lastRequestedEffort);

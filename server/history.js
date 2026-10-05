@@ -217,6 +217,11 @@ async function readSessionFile (filePath, cwd) {
 		if (entry.type === 'custom-title') { customTitle = entry.customTitle; continue; }
 		if (entry.type !== 'user' && entry.type !== 'assistant') continue;
 
+		// Filler the CLI writes itself (model "<synthetic>", text "No response
+		// requested.") when a resume has nothing to continue: not a real reply,
+		// left out. See also the text checks below for the "continue" prompt.
+		if (entry.type === 'assistant' && entry.message?.model === '<synthetic>') continue;
+
 		// Run options of the latest turn, as recorded by Claude Code itself on
 		// the entries (full model id, effort, permission mode) — lets any
 		// browser reopen a session with the options it was last run with.
@@ -265,6 +270,14 @@ async function readSessionFile (filePath, cwd) {
 
 		let text = extractText(entry.message?.content);
 		if (!text) continue;
+
+		// Hidden noise: the bare "continue" prompt (sent automatically to resume
+		// after a permission grant, or typed just to keep going) and the "No
+		// response requested." reply, whichever model wrote it. A reply to a
+		// "continue" that has real content is kept.
+		let bareText = text.trim().toLowerCase();
+		if (entry.type === 'user' && bareText === 'continue') continue;
+		if (entry.type === 'assistant' && bareText === 'no response requested.') continue;
 		if (entry.type === 'assistant') lastMessagePreview = text.slice(0, 100);
 		messages.push({ role: entry.message?.role || entry.type, text, model: entry.message?.model, effort: entry.effort });
 	}
