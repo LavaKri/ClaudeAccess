@@ -74,9 +74,14 @@ tool error; if `permission_denials` is non-empty at the end of the run, show
 the popup then (rare unknown-wording case, so its extra cost is rare too).
 (3) Option C removes all of this cost: the CLI waits in place.
 
-**Status.** Leaning towards C, after a spike, with the compromise above as the
-interim. Nothing implemented. The popup already shows the raw CLI error text
-so real cases can be collected.
+**Status.** The compromise is implemented (details in `spec-interface.md`,
+section 7, and `spec-server.md`, tool error log): genuine denials are
+recognised by "you haven't granted it yet" and cut the CLI at once; other
+tool errors are left to the model; `permission_denials` at the end of the run
+is the fallback for unrecognised wording; no popup for an already-allowed
+tool; "allow once" grants are cleared on every new prompt; every tool error
+is logged to the server console to collect real wordings. Not yet exercised
+against the real CLI. Option C (spike first) remains the end goal.
 
 **Next step.** Capture a real request with `claude` on `haiku` + `low` in a
 scratch directory: exact field names, behaviour with `--resume`, behaviour in
@@ -99,15 +104,13 @@ and a recursive delete ran without a popup while the mode was `default`
 point 1. Also: show the current "always allowed" list somewhere, and decide
 whether it lives for the session only or is persisted.
 
-**Launch state of the list.** Wanted: at browser launch the "always allowed"
-list reflects the permission mode (for example `Edit` and `Write` allowed in
-"Accept edits"), can be changed during the session, and is never saved.
-Today it simply starts empty whatever the mode, and is never saved. Open:
-what exactly each mode should pre-fill, since the CLI already applies the mode
-itself (pre-filling would only be a display, or would add redundant
-`--allowed-tools`).
+**Launch state of the list.** Decided: the "always allowed" list starts empty
+at browser launch whatever the permission mode (the CLI already applies the
+mode itself), can grow during the session, and is never saved. That is the
+current behaviour.
 
-**Status.** Undecided. Depends on point 1.
+**Status.** Launch state settled; granularity still undecided. Depends on
+point 1.
 
 ## 3. Progress line (first version done, details open)
 

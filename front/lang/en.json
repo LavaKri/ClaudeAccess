@@ -165,6 +165,9 @@
 	"progress.thinking": "Claude is thinking",
 	"progress.writing": "Claude is writing the reply",
 	"progress.toolDone": "{{tool}} done",
+	"progress.toolError": "{{tool}}: error",
+	"error.permissionStillDenied": "The {{tool}} tool is already allowed but still denied: allowing it again won't change anything. {{error}}",
+	"tool.request.deniedAtEnd": "Denial reported at the end of the run.",
 	"progress.awaitingPermission": "Waiting for permission",
 
 	"label.host": "Server listen host: ",

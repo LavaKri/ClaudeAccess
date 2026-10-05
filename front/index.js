@@ -420,7 +420,10 @@ function updateProgressFromMessage (message) {
 		else if (content.some(item => item.type === 'text')) setProgress(t('progress.writing'));
 	} else if (message.type === 'user') {
 		let result = (message.message?.content ?? []).find(item => item.type === 'tool_result');
-		if (result) setProgress(t('progress.toolDone', { tool: toolUseCache.get(result.tool_use_id)?.name ?? '' }));
+		if (result) {
+			let tool = toolUseCache.get(result.tool_use_id)?.name ?? '';
+			setProgress(t(result.is_error ? 'progress.toolError' : 'progress.toolDone', { tool }));
+		}
 	}
 }
 
@@ -789,6 +792,7 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	awaitingToolPermission = null;
 	if (permanent && !allowedTools.includes(toolName)) allowedTools = [...allowedTools, toolName];
 	let toolsForThisRun = allowedTools.includes(toolName) ? allowedTools : [...allowedTools, toolName];
+	runGrantedTools = toolsForThisRun;
 	hideQuestion();
 	setWorking(true);
 	setStatus('');
@@ -847,18 +851,54 @@ function cacheToolUse (message) {
 	}
 }
 
-// Returns true if this message was a denied tool_result and has been handled,
-// so the caller can skip its normal (Debug) display.
+// What a genuine permission denial says in its tool_result. Confirmed for
+// Write ("Claude requested permissions to write to <path>, but you haven't
+// granted it yet."); the mock words it "to use X", so only this common tail is
+// matched. Any other tool error ("String to replace not found", "File has been
+// modified since read"...) is an ordinary failure the model corrects itself:
+// no abort, no popup. Denials worded differently are caught at the end of the
+// run through the result's permission_denials (see onServerMessage).
+const PERMISSION_DENIAL_PATTERN = /haven['’]t granted it yet/i;
+
+// Tools granted for the run in flight only ("allow once"): a denial for one of
+// them can't be fixed by allowing it again.
+let runGrantedTools = [];
+
+function isToolAlreadyAllowed (toolName) {
+	return allowedTools.includes(toolName) || runGrantedTools.includes(toolName);
+}
+
+// Returns true if this message was a genuine permission denial and has been
+// handled (popup shown, CLI cut), so the caller can skip its normal display.
 function handleIfToolDenied (message) {
 	for (let item of message.message?.content ?? []) {
-		if (item.type === 'tool_result' && item.is_error) {
-			let toolInfo = toolUseCache.get(item.tool_use_id);
-			showToolPermissionRequest(toolInfo?.name ?? 'Tool', toolInfo?.input, item.tool_use_id, toolResultText(item.content));
-			send({ type: 'abort' });
-			return true;
+		if (item.type !== 'tool_result' || !item.is_error) continue;
+		let errorText = toolResultText(item.content);
+		if (!PERMISSION_DENIAL_PATTERN.test(errorText)) continue;
+
+		let toolInfo = toolUseCache.get(item.tool_use_id);
+		let toolName = toolInfo?.name ?? 'Tool';
+		if (isToolAlreadyAllowed(toolName)) {
+			// Allowing again would only loop (protected path, deny rule...): show
+			// the error instead of asking.
+			appendMessage('error', t('error.permissionStillDenied', { tool: toolName, error: errorText }));
+			continue;
 		}
+		showToolPermissionRequest(toolName, toolInfo?.input, item.tool_use_id, errorText);
+		send({ type: 'abort' });
+		return true;
 	}
 	return false;
+}
+
+// Fallback for denials whose tool_result wording isn't recognised: the
+// result message lists them (permission_denials), but only once the run is
+// over. Asks about the first one that allowing could still fix.
+function handleDeniedAtEnd (message) {
+	let denial = (message.permission_denials ?? []).find(entry => !isToolAlreadyAllowed(entry.tool_name));
+	if (!denial) return false;
+	showToolPermissionRequest(denial.tool_name, denial.tool_input, denial.tool_use_id, t('tool.request.deniedAtEnd'));
+	return true;
 }
 
 // Claude Code writes the auto-generated title to the session's file on disk
@@ -915,6 +955,8 @@ function onServerMessage (message) {
 			awaitingFreshTitle = false;
 			fetchFreshTitle();
 		}
+		// Denials the tool_result check didn't recognise (see handleDeniedAtEnd).
+		if (message.subtype !== 'aborted') handleDeniedAtEnd(message);
 		return;
 	}
 	if (message.type === 'error') {
@@ -942,6 +984,8 @@ async function onPromptSubmit (event) {
 	appendMessage('you', text);
 
 	if (!currentSessionId) awaitingFreshTitle = true;
+	// A new message starts a new run: "allow once" grants don't carry over.
+	runGrantedTools = [];
 	setWorking(true);
 	// The progress line now says it; clearing (not rewriting) the status avoids
 	// a second, redundant "working" announcement.

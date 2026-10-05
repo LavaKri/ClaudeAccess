@@ -183,6 +183,28 @@ function send (ws, payload) {
 	if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
 }
 
+// Logs every tool error the CLI reports (tool name + start of its text) to the
+// server console, so the real wording of genuine permission denials can be
+// collected over time. Purely informational: the front end decides what to do
+// with them. `toolNames` maps tool_use ids to names for this child process.
+function logToolError (line, toolNames) {
+	if (!line.includes('"tool_use"') && !line.includes('"is_error":true')) return;
+	let message;
+	try {
+		message = JSON.parse(line);
+	} catch {
+		return;
+	}
+	for (let item of message.message?.content ?? []) {
+		if (item.type === 'tool_use') {
+			toolNames.set(item.id, item.name);
+		} else if (item.type === 'tool_result' && item.is_error) {
+			let text = typeof item.content === 'string' ? item.content : JSON.stringify(item.content);
+			console.log(`[tool error] ${toolNames.get(item.tool_use_id) ?? '?'}: ${text.replace(/\s+/g, ' ').slice(0, 300)}`);
+		}
+	}
+}
+
 async function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode, cwd, sessionId, allowedTools }) {
 	if (connectionState.activeChild || connectionState.starting) {
 		send(ws, { type: 'error', message: 'A prompt is already running on this connection' });
@@ -225,9 +247,12 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	connectionState.starting = false;
 	connectionState.activeChild = child;
 
+	let toolNames = new Map();
 	let lines = createInterface({ input: child.stdout });
 	lines.on('line', line => {
-		if (line.trim() && ws.readyState === ws.OPEN) ws.send(line);
+		if (!line.trim()) return;
+		logToolError(line, toolNames);
+		if (ws.readyState === ws.OPEN) ws.send(line);
 	});
 
 	child.stderr.on('data', chunk => {

@@ -7,7 +7,10 @@ apps with JAWS, by driving `claude` in print/non-interactive mode
 (`claude -p`) from a small self-hosted web UI instead.
 
 See [doc/plan.md](doc/plan.md) for the phased implementation plan and the
-architecture decisions behind it.
+architecture decisions behind it. What the server and the interface do today
+is described in [doc/spec-server.md](doc/spec-server.md) and
+[doc/spec-interface.md](doc/spec-interface.md); undecided points are tracked
+in [doc/open-questions.md](doc/open-questions.md).
 
 ## Stack
 
