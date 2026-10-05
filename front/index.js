@@ -95,6 +95,15 @@ function applyRunOptions (options) {
 	if (options.model) document.getElementById('modelSelect').value = options.model;
 	if (options.effort) document.getElementById('effortSelect').value = options.effort;
 	if (options.permissionMode) document.getElementById('permissionModeSelect').value = options.permissionMode;
+	updatePermissionModeDescription();
+}
+
+// One-line summary of what the selected permission mode allows, asks or
+// denies. Linked to the select through aria-describedby, so a screen reader
+// announces it with the selected option rather than as a live update.
+function updatePermissionModeDescription () {
+	let mode = document.getElementById('permissionModeSelect').value;
+	document.getElementById('permissionModeDescription').textContent = t('description.permissionMode.' + mode);
 }
 
 // Remembers model/effort/permission-mode per session (so reopening a session
@@ -344,6 +353,67 @@ function setStatus (text) {
 	document.getElementById('statusArea').textContent = text;
 }
 
+// One-line live progress of the CLI run, shown below the prompt. Whether it's
+// read out by the screen reader is the progressAnnounce option: aria-live is
+// toggled on the region itself, so the line is always readable on demand.
+function setProgress (text, { silent = false } = {}) {
+	let area = document.getElementById('progressArea');
+	let live = area.getAttribute('aria-live');
+	if (silent && live === 'polite') {
+		area.setAttribute('aria-live', 'off');
+		setTimeout(() => area.setAttribute('aria-live', live), 300);
+	}
+	document.getElementById('progressLine').textContent = text;
+}
+
+function setProgressAnnounce (enabled) {
+	document.getElementById('progressArea').setAttribute('aria-live', enabled ? 'polite' : 'off');
+}
+
+// Single place that turns a tool_use (name + input) into display data, shared
+// by the progress line and the permission request. Tool names are kept as the
+// CLI reports them (not translated). `text` is the tool's main parameter:
+// a file (project-relative if inside the workspace, otherwise the full path
+// with its volume), a command, a search pattern, a URL... `external` is true
+// for a file outside the workspace, so each display decides how to flag it.
+const TOOL_TEXT_FIELDS = ['command', 'pattern', 'query', 'url', 'description', 'skill'];
+
+function describeTool (name, input) {
+	let path = input?.file_path ?? input?.notebook_path;
+	if (typeof path === 'string') {
+		let text = toProjectRelativePath(path);
+		return { tool: name, text, external: /^([a-zA-Z]:|[\\/])/.test(text) };
+	}
+	let field = TOOL_TEXT_FIELDS.find(key => typeof input?.[key] === 'string');
+	if (field) return { tool: name, text: input[field], external: false };
+	if (Array.isArray(input?.todos)) return { tool: name, text: t('tool.todos', { count: input.todos.length }), external: false };
+	return { tool: name, text: '', external: false };
+}
+
+const PROGRESS_TEXT_MAX = 80;
+
+function describeToolStep (name, input) {
+	let { tool, text } = describeTool(name, input);
+	if (text.length > PROGRESS_TEXT_MAX) text = text.slice(0, PROGRESS_TEXT_MAX) + '…';
+	return text ? `${tool} ${text}` : tool;
+}
+
+// Maps one streamed CLI message to a progress step, if it carries one.
+function updateProgressFromMessage (message) {
+	if (message.type === 'system' && message.subtype === 'init') {
+		setProgress(t('progress.starting'));
+	} else if (message.type === 'assistant') {
+		let content = message.message?.content ?? [];
+		let toolUse = content.findLast(item => item.type === 'tool_use');
+		if (toolUse) setProgress(describeToolStep(toolUse.name, toolUse.input));
+		else if (content.some(item => item.type === 'thinking')) setProgress(t('progress.thinking'));
+		else if (content.some(item => item.type === 'text')) setProgress(t('progress.writing'));
+	} else if (message.type === 'user') {
+		let result = (message.message?.content ?? []).find(item => item.type === 'tool_result');
+		if (result) setProgress(t('progress.toolDone', { tool: toolUseCache.get(result.tool_use_id)?.name ?? '' }));
+	}
+}
+
 function setSessionTitle (title) {
 	currentSessionTitle = title;
 	document.title = t('page.titleWithSession', { title });
@@ -468,6 +538,17 @@ function suggestPrompt (suggestion) {
 // the prompt field is read-only and Send is disabled, so the user can't start
 // a second run concurrently; Abort is only enabled then.
 function setWorking (working) {
+	let progressText = working ? t('progress.working') : t('progress.idle');
+	// A disabled button drops focus to <body>; hand it to the progress line
+	// instead, so the screen reader reads the new state right away. The text is
+	// written silently first: the focus already makes it read, and the live
+	// region would announce the same change a second time.
+	if (working && document.activeElement === document.getElementById('sendButton')) {
+		setProgress(progressText, { silent: true });
+		document.getElementById('progressLine').focus();
+	} else {
+		setProgress(progressText);
+	}
 	document.getElementById('prompt').readOnly = working;
 	document.getElementById('sendButton').disabled = working;
 	document.getElementById('abortButton').disabled = !working;
@@ -485,10 +566,11 @@ function hideQuestion () {
 // immediately, alongside focus moving to the first option. Escape is blocked
 // here (unlike showInputDialog below): a permission request must be answered
 // through one of the option buttons.
-function renderQuestion (text, options) {
+function renderQuestion (text, options, extraLines = []) {
 	let dialog = document.getElementById('questionArea');
 	dialog.textContent = '';
 	dialog.appendChild(create('p', text));
+	for (let line of extraLines) dialog.appendChild(create('p', line));
 
 	let firstButton = null;
 	for (let option of options) {
@@ -500,7 +582,7 @@ function renderQuestion (text, options) {
 	}
 	dialog.oncancel = event => event.preventDefault();
 	if (!dialog.open) dialog.showModal();
-	setStatus(text);
+	setStatus([text, ...extraLines].join(' '));
 	firstButton?.focus();
 }
 
@@ -650,12 +732,10 @@ function showMoveSessionDialog (currentWorkspacePath) {
 	});
 }
 
-// Describes a tool's input in plain language rather than raw JSON — "bash"
-// and its "command" input are the only shape confirmed so far (see the mock),
-// so that's the one special-cased; anything else falls back to the tool name
-// alone (no JSON fragment shown to the user).
-function describeToolAction (input) {
-	if (input && typeof input.command === 'string') return t('tool.detail.command', { command: input.command });
+// A tool_result's content is either a plain string or a list of text blocks.
+function toolResultText (content) {
+	if (typeof content === 'string') return content;
+	if (Array.isArray(content)) return content.map(block => block.text ?? '').join(' ');
 	return '';
 }
 
@@ -664,22 +744,26 @@ function describeToolAction (input) {
 // no live pause on the CLI side — see plan.md: an unauthorized tool just comes
 // back denied, and "allowing" it means starting a new --resume run with the
 // tool added to --allowed-tools.
-function showToolPermissionRequest (toolName, toolInput, toolUseId) {
+function showToolPermissionRequest (toolName, toolInput, toolUseId, errorText) {
 	awaitingToolPermission = { toolName, toolUseId };
 
-	let detail = describeToolAction(toolInput);
-	let text = detail
-		? t('tool.request.withDetail', { tool: toolName, detail })
-		: t('tool.request.plain', { tool: toolName });
+	// Line 1: the request; line 2: the tool's parameter, if any; then the
+	// external-file warning and the CLI's error text.
+	let { tool, text, external } = describeTool(toolName, toolInput);
+	let extraLines = [];
+	if (text) extraLines.push(text);
+	if (external) extraLines.push(t('tool.request.externalFile'));
+	if (errorText) extraLines.push(t('tool.request.error', { error: errorText }));
 
-	renderQuestion(text, [
+	renderQuestion(t('tool.request.tool', { tool }), [
 		{ label: t('button.allowOnce'), onClick: () => resumeWithToolAllowed(toolName, false) },
 		{ label: t('button.alwaysAllow'), onClick: () => resumeWithToolAllowed(toolName, true) },
 		{ label: t('button.deny'), onClick: denyToolPermission },
-	]);
+	], extraLines);
 	playSound('ask.mp3');
 
 	setWorking(true);
+	setProgress(t('progress.awaitingPermission'));
 }
 
 function denyToolPermission () {
@@ -697,7 +781,7 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	let toolsForThisRun = allowedTools.includes(toolName) ? allowedTools : [...allowedTools, toolName];
 	hideQuestion();
 	setWorking(true);
-	setStatus(t('status.working'));
+	setStatus('');
 	// Hidden from the message log: this isn't a message the user actually typed.
 	let runOptions = getRunOptions();
 	lastRequestedEffort = runOptions.effort;
@@ -713,17 +797,22 @@ async function resumeWithToolAllowed (toolName, permanent) {
 // rather than a full (and much noisier) absolute one. Falls back to the
 // original path unchanged if it isn't actually under currentCwd.
 function toProjectRelativePath (absolutePath) {
-	if (!currentCwd) return absolutePath;
-	// currentCwd and a tool's own absolute paths don't necessarily use the same
-	// slash style (e.g. a workspace added as "C:/foo/bar" vs. a tool reporting
-	// "C:\foo\bar\file.cpp") — compare on a forward-slash-normalized form so
-	// the prefix still matches, but keep the original separators of
-	// absolutePath in the returned relative path.
-	let normalize = p => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+	if (!isInsideWorkspace(absolutePath)) return absolutePath;
 	let cwd = currentCwd.replace(/[\\/]+$/, '');
-	let normalizedCwd = normalize(currentCwd);
-	if (normalize(absolutePath).slice(0, normalizedCwd.length) !== normalizedCwd) return absolutePath;
 	return absolutePath.slice(cwd.length).replace(/^[\\/]+/, '');
+}
+
+// currentCwd and a tool's own absolute paths don't necessarily use the same
+// slash style (e.g. a workspace added as "C:/foo/bar" vs. a tool reporting
+// "C:\foo\bar\file.cpp") — compare on a forward-slash-normalized form so
+// the prefix still matches. Requires a separator right after the prefix so
+// "C:/foo/bar2" isn't mistaken for being inside "C:/foo/bar".
+function isInsideWorkspace (absolutePath) {
+	if (!currentCwd) return false;
+	let normalize = p => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+	let normalizedCwd = normalize(currentCwd);
+	let normalizedPath = normalize(absolutePath);
+	return normalizedPath.startsWith(normalizedCwd + '/');
 }
 
 // Classifies one tool_use block for the collapsible tool-use summary (see
@@ -754,7 +843,7 @@ function handleIfToolDenied (message) {
 	for (let item of message.message?.content ?? []) {
 		if (item.type === 'tool_result' && item.is_error) {
 			let toolInfo = toolUseCache.get(item.tool_use_id);
-			showToolPermissionRequest(toolInfo?.name ?? 'Tool', toolInfo?.input, item.tool_use_id);
+			showToolPermissionRequest(toolInfo?.name ?? 'Tool', toolInfo?.input, item.tool_use_id, toolResultText(item.content));
 			send({ type: 'abort' });
 			return true;
 		}
@@ -785,6 +874,7 @@ function onServerMessage (message) {
 		if (message.message?.model) lastAssistantModel = message.message.model;
 	}
 	if (message.type === 'user' && handleIfToolDenied(message)) return;
+	updateProgressFromMessage(message);
 
 	// Confirmed for real (see plan.md): field is "suggestion", fires after "result".
 	if (message.type === 'prompt_suggestion') {
@@ -833,7 +923,9 @@ async function onPromptSubmit (event) {
 
 	if (!currentSessionId) awaitingFreshTitle = true;
 	setWorking(true);
-	setStatus(t('status.working'));
+	// The progress line now says it; clearing (not rewriting) the status avoids
+	// a second, redundant "working" announcement.
+	setStatus('');
 	let runOptions = getRunOptions();
 	lastRequestedEffort = runOptions.effort;
 	await send({
@@ -1345,9 +1437,13 @@ async function onWindowLoad () {
 	SESSIONS_PAGE_SIZE = config.sessionsPerPage;
 	PREVIEW_WORD_COUNT = config.titlePreviewWordCount;
 	completionSoundEnabled = config.completionSound;
+	setProgressAnnounce(config.progressAnnounce);
+	setProgress(t('progress.idle'));
 	populateSelect(document.getElementById('modelSelect'), MODELS, 'option.model', config.defaultModel);
 	populateSelect(document.getElementById('effortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
 	populateSelect(document.getElementById('permissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
+	document.getElementById('permissionModeSelect').addEventListener('change', updatePermissionModeDescription);
+	updatePermissionModeDescription();
 
 	connect(onServerMessage);
 

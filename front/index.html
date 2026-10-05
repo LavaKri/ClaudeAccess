@@ -12,10 +12,11 @@
 <label for="effortSelect" data-i18n="label.effort">Effort: </label>
 <select id="effortSelect" name="effort"></select>
 <label for="permissionModeSelect" data-i18n="label.permissionMode">Permission mode: </label>
-<select id="permissionModeSelect" name="permissionMode"></select>
+<select id="permissionModeSelect" name="permissionMode" aria-describedby="permissionModeDescription"></select>
+<p id="permissionModeDescription"></p>
 </div>
-<section id="workflowArea" class="app-sidebar" aria-labelledby="workflowAreaH2">
-<h2 id="workflowAreaH2" data-i18n="heading.workspace">Workspace</h2>
+<section id="workspaceArea" class="app-sidebar" aria-labelledby="workspaceAreaH2">
+<h2 id="workspaceAreaH2" data-i18n="heading.workspace">Workspace</h2>
 <ul id="workspaceList"></ul>
 <button type="button" id="newerWorkspacesButton" data-i18n="button.newerWorkspaces">Newer workspaces</button>
 <button type="button" id="olderWorkspacesButton" data-i18n="button.olderWorkspaces">Older workspaces</button>
@@ -49,8 +50,7 @@
 </div>
 <dialog id="questionArea">
 </dialog>
-<section id="promptArea" class="app-main app-prompt" aria-labelledby="promptAreaH2">
-<h1 id="promptAreaH2" data-i18n="heading.prompt">Prompt</h1>
+<section id="promptArea" class="app-main app-prompt" aria-label="Prompt" data-i18n-attr="aria-label:heading.prompt" tabindex="-1">
 <form id="promptForm">
 <label for="prompt" data-i18n="label.prompt">Prompt: </label>
 <textarea id="prompt" name="prompt" rows="10" cols="100"></textarea>
@@ -58,5 +58,8 @@
 <button type="button" id="abortButton" disabled data-i18n="button.abort">Abort</button>
 </form>
 </section>
+<div id="progressArea" class="app-main" role="region" aria-label="Progress" data-i18n-attr="aria-label:aria.progress">
+<p id="progressLine" tabindex="-1"></p>
+</div>
 <script type="module" src="index.js"></script>
 </body></html>

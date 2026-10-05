@@ -40,6 +40,7 @@ async function populateForm () {
 	document.getElementById('sessionsPerPageInput').value = config.sessionsPerPage;
 	document.getElementById('titlePreviewWordCountInput').value = config.titlePreviewWordCount;
 	document.getElementById('completionSoundInput').checked = config.completionSound;
+	document.getElementById('progressAnnounceInput').checked = config.progressAnnounce;
 
 	populateSelect(document.getElementById('defaultModelSelect'), MODELS, 'option.model', config.defaultModel);
 	populateSelect(document.getElementById('defaultEffortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
@@ -69,6 +70,7 @@ async function onOptionsSubmit (event) {
 		sessionsPerPage: Number(document.getElementById('sessionsPerPageInput').value),
 		titlePreviewWordCount: Number(document.getElementById('titlePreviewWordCountInput').value),
 		completionSound: document.getElementById('completionSoundInput').checked,
+		progressAnnounce: document.getElementById('progressAnnounceInput').checked,
 		defaultModel: document.getElementById('defaultModelSelect').value,
 		defaultEffort: document.getElementById('defaultEffortSelect').value,
 		defaultPermissionMode: document.getElementById('defaultPermissionModeSelect').value,

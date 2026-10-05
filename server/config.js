@@ -36,6 +36,9 @@ const DEFAULTS = {
 	// to light (see front/theme.js, wired in with the CSS pass).
 	theme: '',
 	completionSound: true,
+	// Whether the progress line below the prompt is announced by the screen
+	// reader as it changes (aria-live), rather than only readable on demand.
+	progressAnnounce: true,
 	// Applied to a brand new session that has no run-options history of its
 	// own yet (see front/index.js's loadRunOptionsForSession).
 	defaultModel: 'sonnet',
@@ -54,7 +57,7 @@ function sanitize (patch) {
 		} else if (key === 'port') {
 			let n = Number(value);
 			if (Number.isInteger(n) && n > 0 && n <= 65535) clean[key] = n;
-		} else if (key === 'completionSound') {
+		} else if (key === 'completionSound' || key === 'progressAnnounce') {
 			clean[key] = Boolean(value);
 		} else if (typeof value === 'string') {
 			clean[key] = value;
