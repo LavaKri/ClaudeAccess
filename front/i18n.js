@@ -62,7 +62,7 @@ function applyStaticTranslations () {
 }
 
 // Resolves the language, loads its dictionary, sets <html lang> (left
-// unset in the static HTML until this runs, per plan.md), and translates
+// unset in the static HTML until this runs, per doc/plan.md), and translates
 // whatever's already in the DOM. Returns the resolved language code.
 export async function initI18n () {
 	currentLanguage = await resolveLanguage();

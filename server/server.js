@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
-import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession, deleteProject } from './history.js';
+import { listProjects, listHistoryProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession, deleteProject } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
+import { getWorkspaceStore, saveWorkspaceStore } from './workspaces.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,6 +50,24 @@ app.get('/api/projects', async (req, res) => {
 	let { claudeHomeDir } = await getConfig();
 	res.set('Cache-Control', 'no-store');
 	res.json(await listProjects(claudeHomeDir));
+});
+
+// The user's own workspace list and its per-workspace UI state (see
+// workspaces.js). The whole store is read and replaced at once: it's tiny.
+app.get('/api/workspaces', async (req, res) => {
+	res.set('Cache-Control', 'no-store');
+	res.json(await getWorkspaceStore());
+});
+
+app.put('/api/workspaces', async (req, res) => {
+	res.json(await saveWorkspaceStore(req.body));
+});
+
+// Every history folder on disk, for the "existing workspaces" picker.
+app.get('/api/history-projects', async (req, res) => {
+	let { claudeHomeDir } = await getConfig();
+	res.set('Cache-Control', 'no-store');
+	res.json(await listHistoryProjects(claudeHomeDir));
 });
 
 app.delete('/api/projects', async (req, res) => {
@@ -183,7 +202,7 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	}
 
 	// `claude`'s actual invocation: prompt as a positional argument right
-	// after -p (confirmed against the real CLI — see CLAUDE.md/plan.md),
+	// after -p (confirmed against the real CLI — see CLAUDE.md/doc/plan.md),
 	// --output-format stream-json requires --verbose or the CLI refuses to
 	// start. --allowed-tools kept last since it's a variadic option.
 	let args = [

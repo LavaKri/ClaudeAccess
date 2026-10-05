@@ -1,7 +1,7 @@
 // Reads Claude Code's own session/project persistence — no storage of our own.
 // Sessions live at ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl, and
 // known working directories are listed in ~/.claude.json's "projects" object.
-// Encoding scheme and file shapes confirmed for real, see plan.md.
+// Encoding scheme and file shapes confirmed for real, see doc/plan.md.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -46,6 +46,64 @@ async function projectLastUsed (dir) {
 		}
 	}));
 	return stats.length ? Math.max(...stats) : null;
+}
+
+// Real working directory of a history folder, read from the "cwd" field of its
+// session files (the folder name alone can't be decoded back: "/", "\", ":",
+// "." and "_" all become "-"). Tries the newest sessions first and gives up
+// quietly (null) if none has a readable cwd.
+async function historyFolderCwd (dir) {
+	let files;
+	try {
+		files = (await fs.readdir(dir)).filter(f => f.endsWith('.jsonl'));
+	} catch {
+		return null;
+	}
+	let dated = await Promise.all(files.map(async f => {
+		try {
+			return { file: f, mtime: (await fs.stat(path.join(dir, f))).mtimeMs };
+		} catch {
+			return { file: f, mtime: 0 };
+		}
+	}));
+	dated.sort((a, b) => b.mtime - a.mtime);
+	for (let { file } of dated.slice(0, 5)) {
+		let handle;
+		try {
+			handle = await fs.open(path.join(dir, file), 'r');
+			let { buffer, bytesRead } = await handle.read(Buffer.alloc(65536), 0, 65536, 0);
+			for (let line of buffer.toString('utf8', 0, bytesRead).split('\n')) {
+				let match = /"cwd":("(?:[^"\\]|\\.)*")/.exec(line);
+				if (match) return JSON.parse(match[1]);
+			}
+		} catch {
+			// Unreadable file: try the next one.
+		} finally {
+			await handle?.close();
+		}
+	}
+	return null;
+}
+
+// Every history folder Claude Code has on disk, whether or not ~/.claude.json
+// lists it — used by the "existing workspaces" picker, never shown
+// automatically. Folders whose real path can't be recovered are left out.
+export async function listHistoryProjects (homeDir) {
+	let names;
+	try {
+		names = await fs.readdir(projectsDir(homeDir));
+	} catch {
+		return [];
+	}
+	let projects = [];
+	for (let encodedName of names) {
+		let dir = path.join(projectsDir(homeDir), encodedName);
+		let projectPath = await historyFolderCwd(dir);
+		if (!projectPath) continue;
+		projects.push({ path: projectPath, encodedName, lastUsed: await projectLastUsed(dir) });
+	}
+	projects.sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
+	return projects;
 }
 
 // Known working directories, deduped by their encoded folder name (Windows
@@ -145,6 +203,7 @@ async function readSessionFile (filePath, cwd) {
 	// are involved, each billed separately), so a resumed session can show its
 	// real historical total rather than starting back at 0.
 	let tokenUsage = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
+	let runOptions = {};
 
 	for (let line of lines) {
 		let entry;
@@ -157,6 +216,16 @@ async function readSessionFile (filePath, cwd) {
 		if (entry.type === 'ai-title') { aiTitle = entry.aiTitle; continue; }
 		if (entry.type === 'custom-title') { customTitle = entry.customTitle; continue; }
 		if (entry.type !== 'user' && entry.type !== 'assistant') continue;
+
+		// Run options of the latest turn, as recorded by Claude Code itself on
+		// the entries (full model id, effort, permission mode) — lets any
+		// browser reopen a session with the options it was last run with.
+		// "<synthetic>" is the placeholder model of CLI-written filler messages.
+		if (entry.permissionMode) runOptions.permissionMode = entry.permissionMode;
+		if (entry.effort) runOptions.effort = entry.effort;
+		if (entry.type === 'assistant' && entry.message?.model && entry.message.model !== '<synthetic>') {
+			runOptions.model = entry.message.model;
+		}
 
 		if (entry.timestamp) {
 			if (!startTime || entry.timestamp < startTime) startTime = entry.timestamp;
@@ -202,7 +271,7 @@ async function readSessionFile (filePath, cwd) {
 
 	return {
 		sessionId, startTime, lastTime, lastMessagePreview, aiTitle, customTitle,
-		messages, messageIds, tokenUsage,
+		messages, messageIds, tokenUsage, runOptions,
 	};
 }
 

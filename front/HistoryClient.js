@@ -1,9 +1,30 @@
 // Thin wrappers around the server's REST endpoints, which just read and write
-// what Claude Code already persists on disk (see plan.md) — no storage of
+// what Claude Code already persists on disk (see doc/plan.md) — no storage of
 // our own.
 
 export async function fetchProjects () {
 	let response = await fetch('/api/projects');
+	return response.json();
+}
+
+// The user's own workspace list ({ exists, workspaces, lastWorkspace }) — see
+// server/workspaces.js. Saved whole, not entry by entry.
+export async function fetchWorkspaceStore () {
+	let response = await fetch('/api/workspaces');
+	return response.json();
+}
+
+export async function saveWorkspaceStore (store) {
+	let response = await fetch('/api/workspaces', {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(store),
+	});
+	return response.ok;
+}
+
+export async function fetchHistoryProjects () {
+	let response = await fetch('/api/history-projects');
 	return response.json();
 }
 

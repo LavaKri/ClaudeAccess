@@ -5,7 +5,7 @@ import { fetchConfig } from './ConfigClient.js';
 import { MODELS, EFFORTS, PERMISSION_MODES, populateSelect } from './runOptions.js';
 import { connect, send } from './WsClient.js';
 import {
-	fetchProjects, fetchSessions, fetchSession,
+	fetchProjects, fetchHistoryProjects, fetchWorkspaceStore, saveWorkspaceStore, fetchSessions, fetchSession,
 	renameSession as renameSessionRequest,
 	deleteSession as deleteSessionRequest,
 	duplicateSession as duplicateSessionRequest,
@@ -19,9 +19,12 @@ import MarkdownIt from './vendor/markdown-it.esm.min.mjs';
 // output and must not be trusted as markup.
 const md = new MarkdownIt();
 
+// Legacy browser-side workspace keys: only read once, by
+// migrateLegacyWorkspaces(), to fill the server-side workspace list.
 const LAST_WORKSPACE_KEY = 'claudeAccessible.lastWorkspace';
 const LAST_SESSION_KEY = 'claudeAccessible.lastSessionId';
 const WORKSPACE_NAMES_KEY = 'claudeAccessible.workspaceNames';
+const HIDDEN_WORKSPACES_KEY = 'claudeAccessible.hiddenWorkspaces';
 const EXTRA_WORKSPACES_KEY = 'claudeAccessible.extraWorkspaces';
 const RUN_OPTIONS_PREFIX = 'claudeAccessible.runOptions.';
 const LAST_RUN_OPTIONS_KEY = 'claudeAccessible.lastRunOptions';
@@ -65,10 +68,13 @@ let currentSessionId = null;
 let allowedTools = [];
 // Known working directories, loaded once so workspace buttons can show a
 // short label while still knowing the full path to switch to.
+// The user's own workspace list ({ path, name?, lastSessionId? }), kept on the
+// server (see persistWorkspaces), and the one selected last.
 let workspaces = [];
+let lastWorkspace = '';
 // True right after starting a brand new (non-resumed) prompt: the real title
 // isn't known yet, since Claude Code writes it to disk asynchronously after
-// the turn ends — see plan.md. Used to trigger a delayed fetch once done.
+// the turn ends — see doc/plan.md. Used to trigger a delayed fetch once done.
 let awaitingFreshTitle = false;
 
 // tool_use blocks are cached by id so that when the matching tool_result comes
@@ -183,8 +189,10 @@ function pageCount () {
 
 function updatePaginationControls () {
 	let pages = pageCount();
-	document.getElementById('pageInput').value = currentPage;
+	// max before value: the field's range must already allow the new value when
+	// it's set, otherwise it can still read (or snap back to) the old page.
 	document.getElementById('pageInput').max = pages;
+	document.getElementById('pageInput').value = currentPage;
 	document.getElementById('totalPagesLabel').textContent = t('label.totalPages', { count: pages });
 	document.getElementById('firstPageButton').disabled = currentPage <= 1;
 	document.getElementById('prevPageButton').disabled = currentPage <= 1;
@@ -741,7 +749,7 @@ function toolResultText (content) {
 
 // Permission requests are a closed question (allow-once / always-allow / deny):
 // only the option buttons answer, the prompt field stays unavailable. There's
-// no live pause on the CLI side — see plan.md: an unauthorized tool just comes
+// no live pause on the CLI side — see doc/plan.md: an unauthorized tool just comes
 // back denied, and "allowing" it means starting a new --resume run with the
 // tool added to --allowed-tools.
 function showToolPermissionRequest (toolName, toolInput, toolUseId, errorText) {
@@ -852,7 +860,7 @@ function handleIfToolDenied (message) {
 }
 
 // Claude Code writes the auto-generated title to the session's file on disk
-// only after the turn ends, not through the stream (see plan.md) — wait a bit
+// only after the turn ends, not through the stream (see doc/plan.md) — wait a bit
 // then fetch it, rather than assume it's there immediately.
 async function fetchFreshTitle () {
 	await wait(1500);
@@ -864,7 +872,7 @@ async function fetchFreshTitle () {
 function onServerMessage (message) {
 	if (message.session_id) {
 		currentSessionId = message.session_id;
-		localStorage.setItem(LAST_SESSION_KEY, currentSessionId);
+		rememberLastSession(currentSessionId);
 		saveRunOptionsForSession(currentSessionId, getRunOptions());
 		renderSessionOptions();
 	}
@@ -876,7 +884,7 @@ function onServerMessage (message) {
 	if (message.type === 'user' && handleIfToolDenied(message)) return;
 	updateProgressFromMessage(message);
 
-	// Confirmed for real (see plan.md): field is "suggestion", fires after "result".
+	// Confirmed for real (see doc/plan.md): field is "suggestion", fires after "result".
 	if (message.type === 'prompt_suggestion') {
 		suggestPrompt(message.suggestion);
 		return;
@@ -956,7 +964,7 @@ function startNewSession () {
 	allowedTools = [];
 	awaitingFreshTitle = false;
 	setSessionTitle(defaultTitle());
-	localStorage.removeItem(LAST_SESSION_KEY);
+	rememberLastSession(null);
 	updateSessionAriaCurrent();
 	applyRunOptions(loadRunOptionsForSession(null));
 	renderSessionOptions();
@@ -1006,11 +1014,29 @@ async function resumeSession (sessionId) {
 	messages = groupMessages(session.messages);
 	currentPage = pageCount();
 	renderMessages();
-	localStorage.setItem(LAST_SESSION_KEY, sessionId);
+	rememberLastSession(sessionId);
 	updateSessionAriaCurrent();
-	applyRunOptions(loadRunOptionsForSession(sessionId) || loadRunOptionsForSession(null));
+	// What the session file says it was last run with wins (so any browser
+	// reopens it the same way); this browser's own memory fills in what the
+	// file doesn't have, then the defaults.
+	applyRunOptions({
+		...(loadRunOptionsForSession(sessionId) || loadRunOptionsForSession(null)),
+		...runOptionsFromSession(session.runOptions),
+	});
 	renderSessionOptions();
 	resetTokenUsage(session.tokenUsage);
+}
+
+// Maps the options recorded in a session file to the selects' values: the file
+// holds the full model id (e.g. "claude-sonnet-5-5") while the select uses
+// aliases ("sonnet"); values the selects don't offer are ignored.
+function runOptionsFromSession (recorded) {
+	let options = {};
+	let model = MODELS.find(alias => recorded?.model?.includes(alias));
+	if (model) options.model = model;
+	if (EFFORTS.includes(recorded?.effort)) options.effort = recorded.effort;
+	if (PERMISSION_MODES.includes(recorded?.permissionMode)) options.permissionMode = recorded.permissionMode;
+	return options;
 }
 
 // Prompts for a new title via the shared input dialog, persists it (as a
@@ -1057,9 +1083,8 @@ async function deleteSessionAction (sessionId, title) {
 }
 
 // Moves the session to another workspace's history, then reloads both lists
-// (per the user's request) — the workspace list because a workspace only
-// known client-side (see loadExtraWorkspaces) may now be known to `claude`
-// for real, the session list because the moved session is gone from here.
+// (per the user's request) — the session list because the moved session is
+// gone from here.
 async function moveSessionAction (sessionId) {
 	let targetCwd = await showMoveSessionDialog(currentCwd);
 	if (!targetCwd) return;
@@ -1070,7 +1095,6 @@ async function moveSessionAction (sessionId) {
 		return;
 	}
 	if (sessionId === currentSessionId) startNewSession();
-	await loadWorkspaces();
 	await loadSessionList();
 }
 
@@ -1153,16 +1177,27 @@ async function loadSessionList () {
 	renderSessionPage();
 }
 
-function loadWorkspaceNames () {
-	try {
-		return JSON.parse(localStorage.getItem(WORKSPACE_NAMES_KEY)) || {};
-	} catch {
-		return {};
-	}
+// The workspace list and the UI state tied to each entry (custom name, last
+// session) live on the server (server/workspaces.js), not in this browser:
+// saved whole after every change.
+function persistWorkspaces () {
+	return saveWorkspaceStore({ workspaces, lastWorkspace });
 }
 
-function saveWorkspaceNames (names) {
-	localStorage.setItem(WORKSPACE_NAMES_KEY, JSON.stringify(names));
+function findWorkspace (workspacePath) {
+	if (!workspacePath) return undefined;
+	let normalized = normalizeWorkspacePath(workspacePath);
+	return workspaces.find(workspace => normalizeWorkspacePath(workspace.path) === normalized);
+}
+
+// Remembers (or, with null, forgets) the last session opened in the current
+// workspace, so reopening the app can pick up where the user left off.
+function rememberLastSession (sessionId) {
+	let entry = findWorkspace(currentCwd);
+	if (!entry || (entry.lastSessionId || null) === (sessionId || null)) return;
+	if (sessionId) entry.lastSessionId = sessionId;
+	else delete entry.lastSessionId;
+	persistWorkspaces();
 }
 
 // Labeled with only the last path segment by default (a `<label>`/`<select>`
@@ -1170,7 +1205,7 @@ function saveWorkspaceNames (names) {
 // screen reader), or a custom name if the user renamed it — the full path is
 // kept as a title attribute (tooltip) and used as the actual cwd on click.
 function workspaceLabel (workspacePath) {
-	let customName = loadWorkspaceNames()[workspacePath];
+	let customName = findWorkspace(workspacePath)?.name;
 	if (customName) return customName;
 	let segments = workspacePath.split(/[\\/]+/).filter(Boolean);
 	return segments[segments.length - 1] || workspacePath;
@@ -1182,18 +1217,16 @@ async function renameWorkspace (workspacePath) {
 	newName = newName.trim();
 	if (!newName) return;
 
-	let names = loadWorkspaceNames();
-	names[workspacePath] = newName;
-	saveWorkspaceNames(names);
-	await loadWorkspaces();
+	let entry = findWorkspace(workspacePath);
+	if (!entry) return;
+	entry.name = newName;
+	await persistWorkspaces();
+	renderWorkspacePage();
 }
 
 // Deletes the workspace's whole history (session files + its ~/.claude.json
 // entry — see history.js's deleteProject) after a confirm dialog, same
-// pattern as deleteSessionAction. Also drops it from the client-only "extra
-// workspaces" list (loadExtraWorkspaces) in case it was never known to
-// `claude` for real. Switches to a fresh, unset workspace if the deleted one
-// was the current one, since currentCwd would otherwise point at nothing.
+// pattern as deleteSessionAction, then drops it from the workspace list too.
 async function deleteWorkspaceAction (workspacePath) {
 	let name = workspaceLabel(workspacePath);
 	let confirmed = await showConfirmDialog(
@@ -1207,20 +1240,33 @@ async function deleteWorkspaceAction (workspacePath) {
 		setStatus(t('status.deleteWorkspaceFailed'));
 		return;
 	}
+	await dropWorkspaceFromList(workspacePath);
+}
 
-	saveExtraWorkspaces(loadExtraWorkspaces().filter(path => normalizeWorkspacePath(path) !== normalizeWorkspacePath(workspacePath)));
+// Removes the workspace from the interface only: its history on disk is left
+// untouched (unlike deleteWorkspaceAction). The "existing workspaces" picker
+// can bring it back.
+async function removeWorkspaceFromList (workspacePath) {
+	let name = workspaceLabel(workspacePath);
+	await dropWorkspaceFromList(workspacePath);
+	setStatus(t('status.workspaceRemoved', { name }));
+}
 
-	let names = loadWorkspaceNames();
-	delete names[workspacePath];
-	saveWorkspaceNames(names);
+// Takes the entry out of the saved list. Switches to a fresh, unset workspace
+// if it was the current one, since currentCwd would otherwise point at nothing.
+async function dropWorkspaceFromList (workspacePath) {
+	let normalized = normalizeWorkspacePath(workspacePath);
+	workspaces = workspaces.filter(workspace => normalizeWorkspacePath(workspace.path) !== normalized);
+	if (lastWorkspace && normalizeWorkspacePath(lastWorkspace) === normalized) lastWorkspace = '';
+	await persistWorkspaces();
 
-	if (normalizeWorkspacePath(workspacePath) === normalizeWorkspacePath(currentCwd)) {
+	if (normalized === normalizeWorkspacePath(currentCwd)) {
 		currentCwd = '';
-		localStorage.removeItem(LAST_WORKSPACE_KEY);
 		startNewSession();
 		await loadSessionList();
 	}
-	await loadWorkspaces();
+	workspacesPage = Math.min(workspacesPage, Math.max(0, Math.ceil(workspaces.length / SESSIONS_PAGE_SIZE) - 1));
+	renderWorkspacePage();
 }
 
 function updateWorkspaceAriaCurrent () {
@@ -1230,27 +1276,14 @@ function updateWorkspaceAriaCurrent () {
 	}
 }
 
+// Same path whatever the slash style, case or trailing separator.
 function normalizeWorkspacePath (workspacePath) {
-	return workspacePath.replace(/[\\/]+$/, '').toLowerCase();
-}
-
-function loadExtraWorkspaces () {
-	try {
-		return JSON.parse(localStorage.getItem(EXTRA_WORKSPACES_KEY)) || [];
-	} catch {
-		return [];
-	}
-}
-
-function saveExtraWorkspaces (paths) {
-	localStorage.setItem(EXTRA_WORKSPACES_KEY, JSON.stringify(paths));
+	return workspacePath.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
 }
 
 // Sessions-list-style pagination — simple older/newer buttons, no page-number
 // input — reusing SESSIONS_PAGE_SIZE (same config field as the session list,
-// per the user's request). Workspaces already arrive most-recently-used
-// first from the server (see history.js's listProjects), except for the
-// client-only "extra" ones appended after, which always sort last.
+// per the user's request). Workspaces keep the order the user added them in.
 let workspacesPage = 0;
 
 function renderWorkspacePage () {
@@ -1272,6 +1305,11 @@ function renderWorkspacePage () {
 		renameButton.addEventListener('click', () => renameWorkspace(workspace.path));
 		details.appendChild(renameButton);
 
+		let removeButton = create('button', t('button.removeFromList'));
+		removeButton.type = 'button';
+		removeButton.addEventListener('click', () => removeWorkspaceFromList(workspace.path));
+		details.appendChild(removeButton);
+
 		let deleteButton = create('button', t('button.delete'));
 		deleteButton.type = 'button';
 		deleteButton.addEventListener('click', () => deleteWorkspaceAction(workspace.path));
@@ -1292,16 +1330,56 @@ function goToWorkspacesPage (page) {
 	renderWorkspacePage();
 }
 
-async function loadWorkspaces () {
-	let serverWorkspaces = await fetchProjects();
-	// Workspaces added manually via "Ajouter un espace de travail" that
-	// `claude` doesn't know about yet (no session run there so far) — kept
-	// client-side, and dropped from here automatically once the server list
-	// picks them up for real.
-	let extraPaths = loadExtraWorkspaces()
-		.filter(path => !serverWorkspaces.some(workspace => normalizeWorkspacePath(workspace.path) === normalizeWorkspacePath(path)));
-	workspaces = [...serverWorkspaces, ...extraPaths.map(path => ({ path }))];
+// One-time migration: older versions kept the workspace list, custom names and
+// last workspace/session in this browser's localStorage, merged with the
+// folders `claude` lists in ~/.claude.json. Builds the server-side store from
+// exactly what that browser showed (known folders + manually added ones, minus
+// the hidden ones) and saves it. The old keys are left in place, unused.
+async function migrateLegacyWorkspaces () {
+	let readJson = (key, fallback) => {
+		try {
+			return JSON.parse(localStorage.getItem(key)) ?? fallback;
+		} catch {
+			return fallback;
+		}
+	};
+	let names = readJson(WORKSPACE_NAMES_KEY, {});
+	let hidden = readJson(HIDDEN_WORKSPACES_KEY, []).map(normalizeWorkspacePath);
+	let extra = readJson(EXTRA_WORKSPACES_KEY, []);
+	let known = (await fetchProjects()).map(project => project.path);
 
+	let paths = [];
+	for (let candidate of [...known, ...extra]) {
+		let normalized = normalizeWorkspacePath(candidate);
+		if (hidden.includes(normalized) || paths.some(path => normalizeWorkspacePath(path) === normalized)) continue;
+		paths.push(candidate);
+	}
+
+	let savedWorkspace = localStorage.getItem(LAST_WORKSPACE_KEY) || '';
+	let savedSession = localStorage.getItem(LAST_SESSION_KEY) || '';
+	let migrated = paths.map(workspacePath => {
+		let entry = { path: workspacePath };
+		if (names[workspacePath]) entry.name = names[workspacePath];
+		if (savedSession && savedWorkspace && normalizeWorkspacePath(workspacePath) === normalizeWorkspacePath(savedWorkspace)) {
+			entry.lastSessionId = savedSession;
+		}
+		return entry;
+	});
+	let store = {
+		workspaces: migrated,
+		lastWorkspace: migrated.some(entry => normalizeWorkspacePath(entry.path) === normalizeWorkspacePath(savedWorkspace)) ? savedWorkspace : '',
+	};
+	await saveWorkspaceStore(store);
+	return store;
+}
+
+// Loads the user's workspace list from the server (migrating the legacy
+// browser-side data the first time, when the server has no list yet).
+async function loadWorkspaces () {
+	let store = await fetchWorkspaceStore();
+	if (!store.exists) store = await migrateLegacyWorkspaces();
+	workspaces = store.workspaces;
+	lastWorkspace = store.lastWorkspace;
 	workspacesPage = 0;
 	renderWorkspacePage();
 }
@@ -1309,9 +1387,13 @@ async function loadWorkspaces () {
 async function selectWorkspace (workspacePath) {
 	currentCwd = workspacePath;
 	startNewSession();
-	localStorage.setItem(LAST_WORKSPACE_KEY, workspacePath);
+	lastWorkspace = workspacePath;
+	persistWorkspaces();
 	updateWorkspaceAriaCurrent();
 	await loadSessionList();
+	// Open the most recent session (the list arrives newest first) rather than
+	// leaving a blank conversation with nothing selected.
+	if (allSessions.length) await resumeSession(allSessions[0].sessionId);
 }
 
 // Server-side native folder browser (see server.js /api/pick-folder) — only
@@ -1390,21 +1472,75 @@ function showAddWorkspaceDialog () {
 
 async function onAddWorkspaceClick () {
 	let workspacePath = await showAddWorkspaceDialog();
-	if (!workspacePath) return;
+	if (workspacePath) await addWorkspace(workspacePath);
+}
 
+// Lists the history folders Claude Code has on disk that aren't in the
+// workspace list yet, and lets the user add one. Nothing is added unless
+// picked: the list is never merged into the sidebar automatically.
+function showExistingWorkspacesDialog (candidates) {
+	return new Promise(resolve => {
+		let dialog = document.getElementById('questionArea');
+		dialog.textContent = '';
+		dialog.oncancel = null;
+
+		function finish (value) {
+			dialog.textContent = '';
+			if (dialog.open) dialog.close();
+			resolve(value);
+		}
+
+		let closeButton = create('button', t('button.close'));
+		closeButton.type = 'button';
+		closeButton.addEventListener('click', () => finish(null));
+		dialog.appendChild(closeButton);
+		dialog.appendChild(create('h2', t('dialog.existingWorkspacesTitle')));
+
+		let firstFocus = closeButton;
+		if (!candidates.length) {
+			dialog.appendChild(create('p', t('dialog.existingWorkspacesNone')));
+		} else {
+			dialog.appendChild(create('p', t('dialog.existingWorkspacesHint')));
+			let list = document.createElement('ul');
+			for (let candidate of candidates) {
+				let button = create('button', candidate.path);
+				button.type = 'button';
+				button.addEventListener('click', () => finish(candidate.path));
+				let item = document.createElement('li');
+				item.appendChild(button);
+				list.appendChild(item);
+				if (firstFocus === closeButton) firstFocus = button;
+			}
+			dialog.appendChild(list);
+		}
+
+		dialog.addEventListener('cancel', () => finish(null), { once: true });
+		dialog.showModal();
+		firstFocus.focus();
+	});
+}
+
+async function onExistingWorkspacesClick () {
+	let found = await fetchHistoryProjects();
+	let candidates = found.filter(project => !workspaces.some(w => normalizeWorkspacePath(w.path) === normalizeWorkspacePath(project.path)));
+	let workspacePath = await showExistingWorkspacesDialog(candidates);
+	if (workspacePath) await addWorkspace(workspacePath);
+}
+
+async function addWorkspace (workspacePath) {
 	// Already known (typed or picked a path that matches an existing entry,
 	// possibly under a different name/casing/trailing slash): just switch to
 	// it rather than adding a redundant duplicate entry.
-	let existing = workspaces.find(w => normalizeWorkspacePath(w.path) === normalizeWorkspacePath(workspacePath));
+	let existing = findWorkspace(workspacePath);
 	if (existing) {
 		await selectWorkspace(existing.path);
 		return;
 	}
 
-	let extra = loadExtraWorkspaces();
-	extra.push(workspacePath);
-	saveExtraWorkspaces(extra);
-	await loadWorkspaces();
+	workspaces.push({ path: workspacePath });
+	await persistWorkspaces();
+	workspacesPage = Math.floor((workspaces.length - 1) / SESSIONS_PAGE_SIZE);
+	renderWorkspacePage();
 	await selectWorkspace(workspacePath);
 }
 
@@ -1412,17 +1548,17 @@ async function onAddWorkspaceClick () {
 // reopening the app picks up where the user left off, rather than always
 // starting blank.
 async function restoreLastState () {
-	let lastWorkspace = localStorage.getItem(LAST_WORKSPACE_KEY);
-	if (!lastWorkspace || !workspaces.some(workspace => workspace.path === lastWorkspace)) {
+	let entry = findWorkspace(lastWorkspace);
+	if (!entry) {
 		await loadSessionList();
 		return;
 	}
 
-	currentCwd = lastWorkspace;
+	currentCwd = entry.path;
 	updateWorkspaceAriaCurrent();
 	await loadSessionList();
 
-	let lastSessionId = localStorage.getItem(LAST_SESSION_KEY);
+	let lastSessionId = entry.lastSessionId;
 	if (lastSessionId && allSessions.some(session => session.sessionId === lastSessionId)) {
 		await resumeSession(lastSessionId);
 	}
@@ -1455,6 +1591,7 @@ async function onWindowLoad () {
 
 	let addWorkspaceButton = document.getElementById('addWorkspaceButton');
 	addWorkspaceButton.addEventListener('click', onAddWorkspaceClick);
+	document.getElementById('existingWorkspacesButton').addEventListener('click', onExistingWorkspacesClick);
 
 	let newSessionButton = document.getElementById('newSessionButton');
 	newSessionButton.addEventListener('click', startNewSession);
@@ -1478,7 +1615,13 @@ async function onWindowLoad () {
 	document.getElementById('prevPageButton').addEventListener('click', () => goToPage(currentPage - 1));
 	document.getElementById('nextPageButton').addEventListener('click', () => goToPage(currentPage + 1));
 	document.getElementById('lastPageButton').addEventListener('click', () => goToPage(pageCount()));
-	document.getElementById('pageInput').addEventListener('change', event => goToPage(Number(event.target.value)));
+	document.getElementById('pageInput').addEventListener('change', event => {
+		let page = Number(event.target.value);
+		// Ignore a change that doesn't actually move to another page (or isn't a
+		// number): it would only re-render the current page for nothing.
+		if (!Number.isInteger(page) || page === currentPage) return;
+		goToPage(page);
+	});
 
 	loadWorkspaces().then(restoreLastState);
 	renderMessages();

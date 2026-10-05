@@ -6,7 +6,7 @@ limitations of the official Claude Desktop and Claude CLI (interactive mode)
 apps with JAWS, by driving `claude` in print/non-interactive mode
 (`claude -p`) from a small self-hosted web UI instead.
 
-See [plan.md](plan.md) for the phased implementation plan and the
+See [doc/plan.md](doc/plan.md) for the phased implementation plan and the
 architecture decisions behind it.
 
 ## Stack
@@ -37,7 +37,7 @@ architecture decisions behind it.
   keep the project minimal and easy to audit.
 - Documentation (this file, README, code comments) is written in English to
   keep the door open for a future public release. Conversations with the
-  user may happen in French. `plan.md` is the one exception: kept as
+  user may happen in French. `doc/plan.md` is the one exception: kept as
   informal, French-language internal working notes rather than polished
   public documentation — see the banner at the top of that file.
 - Accessibility is a first-class constraint, not a final cleanup pass: any
@@ -47,7 +47,7 @@ architecture decisions behind it.
 - The `claude` CLI invocation (`cliCommand` in the app's own config, editable
   from the options page) defaults to the real `claude` binary. Use
   `npm run start:mock` / `dev:mock` to force the mock instead, without
-  touching that config. See `plan.md` step 1 for the mock's scenarios.
+  touching that config. See `doc/plan.md` step 1 for the mock's scenarios.
 - When manual testing needs a real `claude -p` run (not the mock) and the
   actual response content doesn't matter, use the cheapest model/effort
   combination (`sonnet`+`low`, or `haiku`) to minimize usage cost.

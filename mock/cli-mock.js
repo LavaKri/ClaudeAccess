@@ -1,11 +1,11 @@
 // Standalone mock of `claude -p <prompt> --output-format stream-json --verbose`.
 // Emits one JSON object per line on stdout, shaped after a real captured stream
-// (see plan.md step 1), so the server/frontend can be developed without spending
+// (see doc/plan.md step 1), so the server/frontend can be developed without spending
 // real usage. Run via `npm run start:mock` / `dev:mock` instead of the real
 // `claude` binary — see server.js's --mock handling.
 //
 // Permission handling follows the pattern confirmed by reading claude-code-webui
-// (see plan.md): there is no live pause/resume within a single run. An
+// (see doc/plan.md): there is no live pause/resume within a single run. An
 // unauthorized tool simply comes back as a `tool_result` with `is_error: true`;
 // the caller is expected to detect that, then start a *new* run with `--resume`
 // and the tool added to `--allowed-tools`.
@@ -61,7 +61,7 @@ const TOOL_INPUT = { command: 'git commit -am "wip"' };
 
 // Simulates Claude attempting a tool call: emits the `assistant` message with
 // the tool_use block, then a `user` message with the tool_result — shapes
-// confirmed for real from an earlier capture (see plan.md), unlike the rest
+// confirmed for real from an earlier capture (see doc/plan.md), unlike the rest
 // of this scenario which is a documented hypothesis.
 async function attemptTool (sessionId, messageId, model, allowedTools) {
 	let toolId = `toolu_mock_${randomUUID()}`;
@@ -117,7 +117,7 @@ async function main () {
 		cwd: process.cwd(),
 	});
 
-	// No fake session-title stream event here: confirmed for real (see plan.md)
+	// No fake session-title stream event here: confirmed for real (see doc/plan.md)
 	// that Claude Code *does* generate an automatic title ("ai-title") for every
 	// session, including plain `-p` runs, but it's written asynchronously to the
 	// session's own file on disk (~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl),
@@ -204,7 +204,7 @@ async function main () {
 	});
 
 	// Confirmed for real with --prompt-suggestions=true on an actionable prompt
-	// (see plan.md): the field is "suggestion", fires after "result", no id/
+	// (see doc/plan.md): the field is "suggestion", fires after "result", no id/
 	// response expected — fire-and-forget. Emitted here roughly half the time,
 	// to exercise prefilling the prompt field on the frontend without
 	// suggesting one on every single turn.
