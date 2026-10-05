@@ -16,7 +16,9 @@ Last updated: 2026-10-05.
 1. Link to the options page.
 2. Run options: model, effort, permission mode, with a one-line description of
    what the selected permission mode allows, asks or denies (linked to the
-   select with `aria-describedby`; main page only).
+   select with `aria-describedby`; main page only). A second line, present
+   only when needed, says which tools the user allowed "always" beyond what
+   the mode does (see section 7).
 3. Sidebar column: the **workspaces** section, then the **sessions** section.
 4. Main column: session title (H2), status area (`role="status"`,
    `aria-live="polite"`), session options menu, token usage, message log,
@@ -137,8 +139,30 @@ area and focus goes to the first button. Escape does not close it.
 **Granting**: the tool is added to `--allowed-tools` and the run resumed with
 `--resume` and the prompt "continue" (hidden from the log). "Always allow"
 keeps the tool for the current session only: it is allowed for every tool
-use, whatever the command or path, never saved, and reset when a session or
-workspace is opened.
+use, whatever the command or path, and never saved.
+
+**Mode states and the "always allowed" list**: each permission mode has a
+known state for the main tools (`MODE_TOOL_STATES` in `front/runOptions.js`):
+
+| Mode | Read | Write | Edit | Bash |
+|---|---|---|---|---|
+| Manual | allowed | asks | asks | asks |
+| Accept edits | allowed | allowed | allowed | asks |
+| Plan, Don't ask | allowed | denied | denied | denied |
+| Auto | allowed | allowed | allowed | checked by the classifier |
+| Bypass permissions | allowed | allowed | allowed | allowed |
+
+These states are display and comparison only: they are **not** sent to the
+CLI (a bare `--allowed-tools Write` would also approve writes outside the
+workspace, which "Accept edits" does not). The "always allowed" list, which is
+what is sent, is emptied on every change of permission mode and whenever a
+session or workspace is opened. When the user has allowed "always" a tool the
+mode does not allow, a line appears under the mode description, for example
+"Always allowed despite the mode: Write (the mode asks), Bash (the mode
+asks)." It is part of the select's description (`aria-describedby`), not a
+live region, and hidden when there is no such change. Known gap: allowing a
+tool the mode already allows (such as `Write` in "Accept edits") shows
+nothing, yet widens it to every path.
 
 ## 8. Run options
 

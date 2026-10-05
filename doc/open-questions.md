@@ -104,10 +104,19 @@ and a recursive delete ran without a popup while the mode was `default`
 point 1. Also: show the current "always allowed" list somewhere, and decide
 whether it lives for the session only or is persisted.
 
-**Launch state of the list.** Decided: the "always allowed" list starts empty
-at browser launch whatever the permission mode (the CLI already applies the
-mode itself), can grow during the session, and is never saved. That is the
-current behaviour.
+**Launch state of the list.** Decided and implemented: the list sent to the
+CLI starts empty, is emptied on every change of permission mode and when a
+session or workspace is opened, can grow during the session and is never
+saved. Each mode has a known state per main tool (asks / allowed / denied /
+checked, see `spec-interface.md` section 7), used only to show, under the mode
+description, which tools the user allowed "always" beyond the mode. Those
+states are deliberately not sent as `--allowed-tools`: a bare `Write` allow
+would also approve writes outside the workspace under "Accept edits".
+
+**Gap.** Allowing a tool the mode already allows (for example `Write` under
+"Accept edits", after a denial for a path outside the workspace) shows no
+change line but widens it to every path. Needs scoped rules (above) to be
+expressed honestly.
 
 **Status.** Launch state settled; granularity still undecided. Depends on
 point 1.

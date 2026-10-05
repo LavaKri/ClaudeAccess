@@ -2,7 +2,7 @@ import { create } from './DOMHelpers.js';
 import { initI18n, t, getLanguage } from './i18n.js';
 import { initTheme } from './theme.js';
 import { fetchConfig } from './ConfigClient.js';
-import { MODELS, EFFORTS, PERMISSION_MODES, populateSelect } from './runOptions.js';
+import { MODELS, EFFORTS, PERMISSION_MODES, MODE_TOOL_STATES, populateSelect } from './runOptions.js';
 import { connect, send } from './WsClient.js';
 import {
 	fetchProjects, fetchHistoryProjects, fetchWorkspaceStore, saveWorkspaceStore, fetchSessions, fetchSession,
@@ -102,6 +102,7 @@ function applyRunOptions (options) {
 	if (options.effort) document.getElementById('effortSelect').value = options.effort;
 	if (options.permissionMode) document.getElementById('permissionModeSelect').value = options.permissionMode;
 	updatePermissionModeDescription();
+	resetAllowedTools();
 }
 
 // One-line summary of what the selected permission mode allows, asks or
@@ -110,6 +111,31 @@ function applyRunOptions (options) {
 function updatePermissionModeDescription () {
 	let mode = document.getElementById('permissionModeSelect').value;
 	document.getElementById('permissionModeDescription').textContent = t('description.permissionMode.' + mode);
+}
+
+// Every change of permission mode (and every session or workspace opening)
+// starts the "always allowed" list from scratch: nothing is allowed beyond
+// what the mode itself does (MODE_TOOL_STATES), and nothing is ever saved.
+function resetAllowedTools () {
+	allowedTools = [];
+	updatePermissionChanges();
+}
+
+// Extra line under the mode description, only present when the user's "always
+// allow" answers go beyond the mode: it names each tool and what the mode
+// would have done with it. Part of the select's description (aria-describedby),
+// not a live region.
+function updatePermissionChanges () {
+	let mode = document.getElementById('permissionModeSelect').value;
+	let states = MODE_TOOL_STATES[mode] ?? {};
+	let beyond = allowedTools.filter(tool => states[tool] !== 'allowed');
+	let line = document.getElementById('permissionModeChanges');
+	line.textContent = beyond.length
+		? t('description.permissionChanges', {
+			tools: beyond.map(tool => `${tool} (${t('permission.state.' + (states[tool] ?? 'ask'))})`).join(', '),
+		})
+		: '';
+	line.hidden = !beyond.length;
 }
 
 // Remembers model/effort/permission-mode per session (so reopening a session
@@ -790,7 +816,10 @@ function denyToolPermission () {
 // only grants it for this immediate retry, without remembering it afterwards.
 async function resumeWithToolAllowed (toolName, permanent) {
 	awaitingToolPermission = null;
-	if (permanent && !allowedTools.includes(toolName)) allowedTools = [...allowedTools, toolName];
+	if (permanent && !allowedTools.includes(toolName)) {
+		allowedTools = [...allowedTools, toolName];
+		updatePermissionChanges();
+	}
 	let toolsForThisRun = allowedTools.includes(toolName) ? allowedTools : [...allowedTools, toolName];
 	runGrantedTools = toolsForThisRun;
 	hideQuestion();
@@ -1017,7 +1046,7 @@ function resetConversationView () {
 function startNewSession () {
 	resetConversationView();
 	currentSessionId = null;
-	allowedTools = [];
+	resetAllowedTools();
 	awaitingFreshTitle = false;
 	setSessionTitle(defaultTitle());
 	rememberLastSession(null);
@@ -1064,7 +1093,7 @@ async function resumeSession (sessionId) {
 
 	resetConversationView();
 	currentSessionId = session.sessionId;
-	allowedTools = [];
+	resetAllowedTools();
 	awaitingFreshTitle = false;
 	setSessionTitle(session.title || defaultTitle());
 	messages = groupMessages(session.messages);
@@ -1634,7 +1663,10 @@ async function onWindowLoad () {
 	populateSelect(document.getElementById('modelSelect'), MODELS, 'option.model', config.defaultModel);
 	populateSelect(document.getElementById('effortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
 	populateSelect(document.getElementById('permissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
-	document.getElementById('permissionModeSelect').addEventListener('change', updatePermissionModeDescription);
+	document.getElementById('permissionModeSelect').addEventListener('change', () => {
+		updatePermissionModeDescription();
+		resetAllowedTools();
+	});
 	updatePermissionModeDescription();
 
 	connect(onServerMessage);

@@ -15,6 +15,21 @@ export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'];
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions'];
 
+// What each permission mode does by itself with the main tools, from the
+// Claude Code docs: 'allowed' runs without asking, 'ask' needs the user's
+// answer, 'checked' goes through the auto-mode safety classifier, 'denied' is
+// refused. Display and comparison only: these values are never sent to the CLI
+// (a bare `--allowed-tools Write` would also approve writes outside the
+// workspace, which acceptEdits does not).
+export const MODE_TOOL_STATES = {
+	default: { Read: 'allowed', Write: 'ask', Edit: 'ask', Bash: 'ask' },
+	acceptEdits: { Read: 'allowed', Write: 'allowed', Edit: 'allowed', Bash: 'ask' },
+	plan: { Read: 'allowed', Write: 'denied', Edit: 'denied', Bash: 'denied' },
+	auto: { Read: 'allowed', Write: 'allowed', Edit: 'allowed', Bash: 'checked' },
+	dontAsk: { Read: 'allowed', Write: 'denied', Edit: 'denied', Bash: 'denied' },
+	bypassPermissions: { Read: 'allowed', Write: 'allowed', Edit: 'allowed', Bash: 'allowed' },
+};
+
 // Fills a <select> with one <option> per value, translated via
 // "<translationPrefix>.<value>", and marks selectedValue as selected.
 export function populateSelect (select, values, translationPrefix, selectedValue) {
