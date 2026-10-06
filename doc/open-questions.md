@@ -18,6 +18,19 @@ loops. Observed in one real session: 157 `continue` prompts, 159 CLI-written
 `<synthetic>` "No response requested." messages, and no genuine permission
 denial at all.
 
+**Found 2026-10-06.** The filter first only knew "you haven't granted it
+yet", so genuine `Bash` denials ("This command requires approval", "This Bash
+command contains multiple operations. The following part requires approval:
+…", about 18 error results in one session file) opened no popup and the user
+never saw a request. The pattern now also matches "requires approval" and
+"needs approval" (a third wording, seen on a `mkdir` outside the working
+directories: "mkdir in '<path>' needs approval. The path is outside the
+working directories for this session. Allowing runs the command as
+written."). Other
+wordings may exist (a "Contains simple_expansion" result was seen once for a
+heredoc command): the server console log and the end-of-run fallback exist to
+catch them.
+
 **What is known.**
 - Real denial text, for `Write` (anthropics/claude-code issue 54850):
   "Claude requested permissions to **write to** <path>, but you haven't granted
@@ -76,12 +89,17 @@ the popup then (rare unknown-wording case, so its extra cost is rare too).
 
 **Status.** The compromise is implemented (details in `spec-interface.md`,
 section 7, and `spec-server.md`, tool error log): genuine denials are
-recognised by "you haven't granted it yet" and cut the CLI at once; other
+recognised by "you haven't granted it yet" or "requires/needs approval" and cut the CLI at once; other
 tool errors are left to the model; `permission_denials` at the end of the run
 is the fallback for unrecognised wording; no popup for an already-allowed
 tool; "allow once" grants are cleared on every new prompt; every tool error
-is logged to the server console to collect real wordings. Not yet exercised
-against the real CLI. Option C (spike first) remains the end goal.
+is logged to the server console to collect real wordings. Exercised against
+the real CLI on 2026-10-06 for `Bash`: the popup opens on a command needing
+approval, "Allow once" resumes and the command runs, and "Always allow" shows
+the change line under the mode description (which disappears when the mode is
+changed). Still unexercised: `Write`/`Edit` popups after the filter change, the
+end-of-run fallback, and the loop guard. Option C (spike first) remains the end
+goal.
 
 **Next step.** Capture a real request with `claude` on `haiku` + `low` in a
 scratch directory: exact field names, behaviour with `--resume`, behaviour in
@@ -113,10 +131,11 @@ description, which tools the user allowed "always" beyond the mode. Those
 states are deliberately not sent as `--allowed-tools`: a bare `Write` allow
 would also approve writes outside the workspace under "Accept edits".
 
-**Gap.** Allowing a tool the mode already allows (for example `Write` under
-"Accept edits", after a denial for a path outside the workspace) shows no
-change line but widens it to every path. Needs scoped rules (above) to be
-expressed honestly.
+**Gap, partly handled.** Under "Accept edits", `Write` and `Edit` are allowed
+only inside the workspace, so a popup there means a path outside it. The
+change line now says so ("Write (the mode allows it only inside the
+workspace)"). The widening itself remains: an "always allow" of a bare tool
+name covers every path. Reducing it needs scoped rules (above).
 
 **Status.** Launch state settled; granularity still undecided. Depends on
 point 1.

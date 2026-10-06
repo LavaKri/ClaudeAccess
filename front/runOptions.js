@@ -18,12 +18,14 @@ export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'auto', 'dont
 // What each permission mode does by itself with the main tools, from the
 // Claude Code docs: 'allowed' runs without asking, 'ask' needs the user's
 // answer, 'checked' goes through the auto-mode safety classifier, 'denied' is
-// refused. Display and comparison only: these values are never sent to the CLI
+// refused, 'workspace' runs without asking only inside the workspace (outside
+// it the mode still asks, so an "always allow" there widens it to every path).
+// Display and comparison only: these values are never sent to the CLI
 // (a bare `--allowed-tools Write` would also approve writes outside the
 // workspace, which acceptEdits does not).
 export const MODE_TOOL_STATES = {
 	default: { Read: 'allowed', Write: 'ask', Edit: 'ask', Bash: 'ask' },
-	acceptEdits: { Read: 'allowed', Write: 'allowed', Edit: 'allowed', Bash: 'ask' },
+	acceptEdits: { Read: 'allowed', Write: 'workspace', Edit: 'workspace', Bash: 'ask' },
 	plan: { Read: 'allowed', Write: 'denied', Edit: 'denied', Bash: 'denied' },
 	auto: { Read: 'allowed', Write: 'allowed', Edit: 'allowed', Bash: 'checked' },
 	dontAsk: { Read: 'allowed', Write: 'denied', Edit: 'denied', Bash: 'denied' },

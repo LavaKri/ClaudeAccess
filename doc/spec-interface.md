@@ -116,8 +116,12 @@ A region named "Progress" holding one line of text.
 The CLI cannot pause for approval in `-p` mode, so the interface handles it.
 
 **What counts as a permission request**
-- A tool result whose error says "you haven't granted it yet" (the wording
-  confirmed for `Write`): the CLI is cut at once and the popup shown.
+- A tool result whose error says "you haven't granted it yet" (confirmed for
+  `Write`) or "requires approval" / "needs approval" (confirmed for `Bash`:
+  "This command requires approval", "This Bash command contains multiple
+  operations. The following part requires approval: …", "mkdir in '<path>'
+  needs approval. The path is outside the working directories…"): the CLI is
+  cut at once and the popup shown.
 - Any other tool error ("String to replace not found", "File has been
   modified since read"…) is an ordinary failure: nothing is cut, no popup, the
   model corrects itself; the progress line says "<Tool>: error".
@@ -147,7 +151,7 @@ known state for the main tools (`MODE_TOOL_STATES` in `front/runOptions.js`):
 | Mode | Read | Write | Edit | Bash |
 |---|---|---|---|---|
 | Manual | allowed | asks | asks | asks |
-| Accept edits | allowed | allowed | allowed | asks |
+| Accept edits | allowed | allowed inside the workspace only | allowed inside the workspace only | asks |
 | Plan, Don't ask | allowed | denied | denied | denied |
 | Auto | allowed | allowed | allowed | checked by the classifier |
 | Bypass permissions | allowed | allowed | allowed | allowed |
@@ -160,9 +164,11 @@ session or workspace is opened. When the user has allowed "always" a tool the
 mode does not allow, a line appears under the mode description, for example
 "Always allowed despite the mode: Write (the mode asks), Bash (the mode
 asks)." It is part of the select's description (`aria-describedby`), not a
-live region, and hidden when there is no such change. Known gap: allowing a
-tool the mode already allows (such as `Write` in "Accept edits") shows
-nothing, yet widens it to every path.
+live region, and hidden when there is no such change. Where a mode allows a
+tool only inside the workspace ("Accept edits" for `Write` and `Edit`), an
+"always allow" is shown too, as "Write (the mode allows it only inside the
+workspace)", since it widens the tool to every path. The widening itself
+is not reduced: only scoped rules could do that (see `open-questions.md`).
 
 ## 8. Run options
 

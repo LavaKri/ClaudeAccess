@@ -880,14 +880,17 @@ function cacheToolUse (message) {
 	}
 }
 
-// What a genuine permission denial says in its tool_result. Confirmed for
-// Write ("Claude requested permissions to write to <path>, but you haven't
-// granted it yet."); the mock words it "to use X", so only this common tail is
-// matched. Any other tool error ("String to replace not found", "File has been
+// What a genuine permission denial says in its tool_result. Two wordings
+// confirmed on real runs: Write ("Claude requested permissions to write to
+// <path>, but you haven't granted it yet."; the mock words it "to use X", so
+// only the common tail is matched) and Bash ("This command requires approval",
+// "This Bash command contains multiple operations. The following part
+// requires approval: ...", and "mkdir in '<path>' needs approval. The path is
+// outside the working directories for this session..."). Any other tool error ("String to replace not found", "File has been
 // modified since read"...) is an ordinary failure the model corrects itself:
 // no abort, no popup. Denials worded differently are caught at the end of the
 // run through the result's permission_denials (see onServerMessage).
-const PERMISSION_DENIAL_PATTERN = /haven['’]t granted it yet/i;
+const PERMISSION_DENIAL_PATTERN = /haven['’]t granted it yet|(requires?|needs?) approval/i;
 
 // Tools granted for the run in flight only ("allow once"): a denial for one of
 // them can't be fixed by allowing it again.
