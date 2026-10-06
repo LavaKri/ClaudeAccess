@@ -89,7 +89,8 @@ the popup then (rare unknown-wording case, so its extra cost is rare too).
 
 **Status.** The compromise is implemented (details in `spec-interface.md`,
 section 7, and `spec-server.md`, tool error log): genuine denials are
-recognised by "you haven't granted it yet" or "requires/needs approval" and cut the CLI at once; other
+recognised by "you haven't granted it yet" (`Write`) or "requires approval" /
+"needs approval" (`Bash`) and cut the CLI at once; other
 tool errors are left to the model; `permission_denials` at the end of the run
 is the fallback for unrecognised wording; no popup for an already-allowed
 tool; "allow once" grants are cleared on every new prompt; every tool error

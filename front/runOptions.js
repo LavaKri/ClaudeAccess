@@ -32,6 +32,12 @@ export const MODE_TOOL_STATES = {
 	bypassPermissions: { Read: 'allowed', Write: 'allowed', Edit: 'allowed', Bash: 'allowed' },
 };
 
+// State of one tool under a mode. Tools outside the table above are asked about
+// by every mode except bypassPermissions, which allows everything.
+export function toolStateInMode (mode, tool) {
+	return MODE_TOOL_STATES[mode]?.[tool] ?? (mode === 'bypassPermissions' ? 'allowed' : 'ask');
+}
+
 // Fills a <select> with one <option> per value, translated via
 // "<translationPrefix>.<value>", and marks selectedValue as selected.
 export function populateSelect (select, values, translationPrefix, selectedValue) {

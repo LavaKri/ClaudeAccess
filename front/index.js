@@ -2,7 +2,7 @@ import { create } from './DOMHelpers.js';
 import { initI18n, t, getLanguage } from './i18n.js';
 import { initTheme } from './theme.js';
 import { fetchConfig } from './ConfigClient.js';
-import { MODELS, EFFORTS, PERMISSION_MODES, MODE_TOOL_STATES, populateSelect } from './runOptions.js';
+import { MODELS, EFFORTS, PERMISSION_MODES, toolStateInMode, populateSelect } from './runOptions.js';
 import { connect, send } from './WsClient.js';
 import {
 	fetchProjects, fetchHistoryProjects, fetchWorkspaceStore, saveWorkspaceStore, fetchSessions, fetchSession,
@@ -127,12 +127,11 @@ function resetAllowedTools () {
 // not a live region.
 function updatePermissionChanges () {
 	let mode = document.getElementById('permissionModeSelect').value;
-	let states = MODE_TOOL_STATES[mode] ?? {};
-	let beyond = allowedTools.filter(tool => states[tool] !== 'allowed');
+	let beyond = allowedTools.filter(tool => toolStateInMode(mode, tool) !== 'allowed');
 	let line = document.getElementById('permissionModeChanges');
 	line.textContent = beyond.length
 		? t('description.permissionChanges', {
-			tools: beyond.map(tool => `${tool} (${t('permission.state.' + (states[tool] ?? 'ask'))})`).join(', '),
+			tools: beyond.map(tool => `${tool} (${t('permission.state.' + toolStateInMode(mode, tool))})`).join(', '),
 		})
 		: '';
 	line.hidden = !beyond.length;

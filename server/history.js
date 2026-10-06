@@ -282,6 +282,10 @@ async function readSessionFile (filePath, cwd) {
 		messages.push({ role: entry.message?.role || entry.type, text, model: entry.message?.model, effort: entry.effort });
 	}
 
+	// Nothing readable (unparseable lines, or only hidden filler) and no title:
+	// not worth listing as a blank entry.
+	if (!messages.length && !aiTitle && !customTitle) return null;
+
 	return {
 		sessionId, startTime, lastTime, lastMessagePreview, aiTitle, customTitle,
 		messages, messageIds, tokenUsage, runOptions,
