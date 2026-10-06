@@ -21,8 +21,8 @@ Last updated: 2026-10-05.
    the mode does (see section 7).
 3. Sidebar column: the **workspaces** section, then the **sessions** section.
 4. Main column: session title (H2), status area (`role="status"`,
-   `aria-live="polite"`), session options menu, token usage, message log,
-   message pagination, the question dialog, the prompt form, and the
+   `aria-live="polite"`), session options menu, token usage,
+   message pagination, message log, the question dialog, the prompt form, and the
    **Progress** region at the very bottom of the page.
 
 Two-column grid on wide screens, single column on narrow ones.
@@ -57,10 +57,13 @@ Listed newest first for the current workspace, paginated.
 
 - **New session**, **Refresh sessions**, choose one to open it (the last page
   of its messages is shown).
-- Per-session menu: rename, duplicate, delete (confirm), move to another
+- Per-session menu: rename, delete (confirm). Duplicate and move were removed
+  (2026-10-06): both manipulate files the CLI owns, duplicate hid one of the
+  two copies in the list, and move relied on an unverified assumption about
+  `--resume`. To continue elsewhere, start a new session in the right
   workspace.
-- Session options menu (current session): rename, duplicate, copy the whole
-  session as Markdown, export it as a Markdown file, move.
+- Session options menu (current session): rename, copy the whole session as
+  Markdown, export it as a Markdown file.
 - Opening a session restores the model, effort and permission mode it was last
   run with, read from the session file (so any browser reopens it the same
   way); this browser's own memory fills in what the file lacks, then the
@@ -77,13 +80,32 @@ Listed newest first for the current workspace, paginated.
   as markup) and headed with the model and effort used.
 - Tool uses are collapsed into a details/summary and don't count as a page
   slot.
-- Pagination: first / previous / page number field / next / last, over
-  `messagesPerPage` groups. After a run or when opening a session the view
+- Pagination: first / previous / page select / next / last, over
+  `messagesPerPage` groups. The page picker is a select, not a number input,
+  so JAWS's "next edit field" key goes straight to the prompt. After a run or when opening a session the view
   follows the last page; a user reading an earlier page is left alone.
 - Per-group menu: copy.
-- Noise hidden in rebuilt history: CLI-written `<synthetic>` replies, "No
-  response requested." replies and bare "continue" prompts. The live log
-  likewise adds nothing for a `<synthetic>` turn (no message, no sound).
+- Noise hidden, in the rebuilt history and in the live log alike: replies
+  whose text is exactly "No response requested." (whichever model wrote them,
+  `<synthetic>` included), empty texts, and bare "continue" prompts. A turn
+  whose only reply is that filler produces no log entry and no sound.
+- **Synthetic messages are not hidden as a class.** `<synthetic>` is the
+  placeholder model of messages the CLI writes itself. Besides the filler,
+  some say something the user needs, such as "You've hit your session limit ·
+  resets 2:10pm (Europe/Paris)". Hiding every `<synthetic>` message (done
+  from 2026-10-05 to 2026-10-06) hid those too, so a message answered by the
+  usage-limit notice looked like it had no answer, even after a page reload.
+  These messages are now shown like any other text, but without a model name
+  or effort level in the heading (there is none), so the heading reads
+  "Claude replied: …" rather than "Reply from <synthetic>".
+- **Live log = rebuilt history.** Every `text` the model writes is added to the
+  log as soon as its assistant message arrives, between tool calls included;
+  the final result then adds its text only if it differs from the last one
+  shown (an identical repeat is dropped), and an empty result adds nothing.
+  Before 2026-10-06 only the result's text was shown, so a turn ending on a
+  tool call displayed an answer with no text, and the intermediate texts only
+  appeared after a page reload. The "Refresh sessions" button reloads the
+  session list, not the open conversation.
 
 ## 5. Prompt and run
 
@@ -99,14 +121,41 @@ Listed newest first for the current workspace, paginated.
 
 ## 6. Progress region
 
-A region named "Progress" holding one line of text.
+A plain `<div id="progressArea">` holding one paragraph, `<p id="progressLine"
+tabindex="-1">`, with one line of text. `aria-live` is set on the div by the
+code, not in the HTML.
 
-- Idle: "Waiting for a prompt". Working: "Claude is working…".
-- Steps taken from the stream: starting, thinking, writing the reply, and each
-  tool use as `<Tool> <text>` (tool names are never translated; the text is the
-  main parameter, cut at 80 characters), then `<Tool> done` or
-  `<Tool>: error`. While a permission question is open: "Waiting for
-  permission".
+**Why a plain `<div>` and not a named region.** The first version was a
+`role="region"` with an `aria-label`. Each time the line was read, JAWS
+announced "entering region Progress" and "leaving region", which is noise for
+a single line of text. Without the role and the label there are no region
+boundaries to announce; the user tried it on 2026-10-06 and found it much more
+pleasant. What is given up: the region shortcut of the screen reader and the
+accessible name, which doesn't matter here because the zone sits at the very
+bottom of the page and receives focus after each prompt. `aria-live` doesn't
+need a role, so the announcements and the "announce progress steps" option are
+unaffected.
+
+**Remark on `role="status"`.** Putting `role="status"` on the paragraph itself
+would keep an accessible name without the region chatter, but a status is an
+implicit, permanent polite live region: the option that turns announcements
+off could no longer silence it. That is why the paragraph has no role and the
+live behaviour is driven by `aria-live` on the div.
+
+- Idle: "Waiting for a prompt". Working: "Claude is working…" (the default
+  state, not a stream event).
+- Steps taken from the stream, all confirmed on real runs: `system/init`
+  ("Starting"); `system/thinking_tokens` and `thinking` blocks ("Claude is
+  thinking"; the tokens message arrives while the model is still thinking);
+  a `text` block ("Claude is writing the reply"); a `tool_use` block as
+  `<Tool> <text>` (tool names are never translated; the text is the main
+  parameter, cut at 80 characters); then the matching `tool_result` as
+  `<Tool> done` or `<Tool>: error`. While a permission question is open:
+  "Waiting for permission".
+- Messages arrive once complete (the CLI doesn't stream partial text unless
+  asked to), so a step shows when its block is finished, apart from thinking.
+- A line identical to the one already shown is not rewritten, so repeated
+  steps (a stream of thinking counters) don't trigger repeated announcements.
 - Option "Announce progress steps with the screen reader" (on by default):
   turns `aria-live="polite"` on the region on or off; the line is always
   readable by navigating to it.
@@ -116,18 +165,26 @@ A region named "Progress" holding one line of text.
 The CLI cannot pause for approval in `-p` mode, so the interface handles it.
 
 **What counts as a permission request**
-- A tool result whose error says "you haven't granted it yet" (confirmed for
-  `Write`) or "requires approval" / "needs approval" (confirmed for `Bash`:
-  "This command requires approval", "This Bash command contains multiple
-  operations. The following part requires approval: …", "mkdir in '<path>'
-  needs approval. The path is outside the working directories…"): the CLI is
-  cut at once and the popup shown.
+- The CLI's own marker: right before the error `tool_result` of every denied
+  tool it emits `{ type: "system", subtype: "permission_denied", tool_name,
+  tool_use_id, message }`. On that message the CLI is cut at once and the
+  popup shown, with the tool's input taken from the earlier `tool_use` and the
+  marker's `message` as the last line. No wording is involved: the marker was
+  seen on real runs for `Write`, `Edit`, `Bash` and in `dontAsk` mode, where
+  the texts differ ("Claude requested permissions to write to … but you haven't
+  granted it yet.", "mkdir in '…' needs approval…", "Permission to use Write
+  has been denied because Claude Code is running in don't ask mode…"). Until
+  2026-10-06 the detection matched those texts instead, which missed the
+  `dontAsk` one.
 - Any other tool error ("String to replace not found", "File has been
-  modified since read"…) is an ordinary failure: nothing is cut, no popup, the
+  modified since read"…) carries no such marker: nothing is cut, no popup, the
   model corrects itself; the progress line says "<Tool>: error".
-- At the end of a run, entries in the result's `permission_denials` whose
-  wording wasn't recognised get the popup then ("Denial reported at the end
-  of the run"); this also covers `dontAsk`.
+- Fallback, for a CLI that doesn't send the marker: at the end of a run, the
+  entries of the result's `permission_denials` (`tool_name`, `tool_use_id`,
+  `tool_input`) get the popup then ("Denial reported at the end of the run").
+- While a question is open, whatever the cut CLI still sends (the denied
+  `tool_result`, a second denial in the same step) is ignored, so it can't
+  replace the question or rewrite the progress line.
 - A denial for a tool that is already allowed (always, or once for this run)
   gets no popup, since allowing again can't help (protected path, deny rule):
   an error is added to the log instead.

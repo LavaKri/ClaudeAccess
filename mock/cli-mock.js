@@ -58,6 +58,11 @@ function pickResponse () {
 
 const TOOL_NAME = 'Bash';
 const TOOL_INPUT = { command: 'git commit -am "wip"' };
+// Wording of a real Bash denial ("This command requires approval", seen in a real
+// session). Write and Edit say "Claude requested permissions to write to <path>,
+// but you haven't granted it yet." instead; don't mode says "Permission to use X
+// has been denied because Claude Code is running in don't ask mode…".
+const DENIAL_TEXT = 'This command requires approval';
 
 // Simulates Claude attempting a tool call: emits the `assistant` message with
 // the tool_use block, then a `user` message with the tool_result — shapes
@@ -80,6 +85,19 @@ async function attemptTool (sessionId, messageId, model, allowedTools) {
 	await wait(randomDelay(100, 300));
 
 	let allowed = allowedTools.includes(TOOL_NAME);
+	if (!allowed) {
+		// The real CLI announces every denial with a dedicated system message right
+		// before the (error) tool_result, then lists it in the result's
+		// permission_denials — both confirmed on a real run (see doc/plan.md).
+		await emit({
+			type: 'system',
+			subtype: 'permission_denied',
+			tool_name: TOOL_NAME,
+			tool_use_id: toolId,
+			message: DENIAL_TEXT,
+			session_id: sessionId,
+		});
+	}
 	await emit({
 		type: 'user',
 		session_id: sessionId,
@@ -88,17 +106,45 @@ async function attemptTool (sessionId, messageId, model, allowedTools) {
 			content: [{
 				type: 'tool_result',
 				tool_use_id: toolId,
-				content: allowed
-					? 'wip\n 1 file changed, 1 insertion(+)'
-					: `Claude requested permissions to use ${TOOL_NAME}, but you haven't granted it yet.`,
+				content: allowed ? 'wip\n 1 file changed, 1 insertion(+)' : DENIAL_TEXT,
 				is_error: !allowed,
 			}],
 		},
 	});
 
-	return allowed
-		? ' (Commande Bash exécutée avec succès.)'
-		: ' (Permission requise pour Bash, en attente de ton autorisation.)';
+	return {
+		note: allowed
+			? ' (Commande Bash exécutée avec succès.)'
+			: ' (Permission requise pour Bash, en attente de ton autorisation.)',
+		denial: allowed ? null : { tool_name: TOOL_NAME, tool_use_id: toolId, tool_input: TOOL_INPUT },
+	};
+}
+
+// Emits what the real CLI streams while the model thinks: a few estimated
+// thinking-token counters, then an assistant message holding a (possibly empty)
+// thinking block. Confirmed on a real run.
+async function emitThinking (sessionId, model) {
+	for (let tokens = 50; tokens <= 100; tokens += 50) {
+		await emit({
+			type: 'system',
+			subtype: 'thinking_tokens',
+			estimated_tokens: tokens,
+			estimated_tokens_delta: 50,
+			session_id: sessionId,
+		});
+		await wait(randomDelay(30, 80));
+	}
+	await emit({
+		type: 'assistant',
+		session_id: sessionId,
+		message: {
+			id: `msg_mock_think_${randomUUID()}`,
+			type: 'message',
+			role: 'assistant',
+			model,
+			content: [{ type: 'thinking', thinking: '' }],
+		},
+	});
 }
 
 async function main () {
@@ -126,15 +172,21 @@ async function main () {
 
 	await wait(randomDelay(200, 500));
 
+	await emitThinking(sessionId, model);
+
 	let interactionNote = '';
+	let denials = [];
+	let attempt = null;
 	if (isResuming) {
 		// A resumed run means the frontend just granted a permission it saw
 		// denied earlier: retry the same tool now that it's allowed.
-		interactionNote = await attemptTool(sessionId, messageId, model, allowedTools);
-	} else {
-		if (Math.random() < 0.3) {
-			interactionNote = await attemptTool(sessionId, messageId, model, allowedTools);
-		}
+		attempt = await attemptTool(sessionId, messageId, model, allowedTools);
+	} else if (Math.random() < 0.3) {
+		attempt = await attemptTool(sessionId, messageId, model, allowedTools);
+	}
+	if (attempt) {
+		interactionNote = attempt.note;
+		if (attempt.denial) denials.push(attempt.denial);
 	}
 
 	await emit({
@@ -200,6 +252,7 @@ async function main () {
 		subtype: 'success',
 		session_id: sessionId,
 		result: fullText,
+		permission_denials: denials,
 		usage: { input_tokens: prompt.length, output_tokens: fullText.length },
 	});
 

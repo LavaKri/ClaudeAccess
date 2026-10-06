@@ -8,8 +8,6 @@ import {
 	fetchProjects, fetchHistoryProjects, fetchWorkspaceStore, saveWorkspaceStore, fetchSessions, fetchSession,
 	renameSession as renameSessionRequest,
 	deleteSession as deleteSessionRequest,
-	duplicateSession as duplicateSessionRequest,
-	moveSession as moveSessionRequest,
 	deleteProject as deleteProjectRequest,
 } from './HistoryClient.js';
 import MarkdownIt from './vendor/markdown-it.esm.min.mjs';
@@ -198,7 +196,9 @@ let currentPage = 1;
 // "assistant" message (the only place the CLI reports it) and attached to
 // the "claude" group once the turn's "result" arrives.
 let lastAssistantModel = null;
-// Set when the in-flight turn's reply is a CLI-written "<synthetic>" filler.
+// Set when the in-flight turn's reply is only the CLI-written "<synthetic>"
+// "No response requested." filler (a synthetic message with real content, like
+// a usage-limit notice, doesn't set it).
 let syntheticTurn = false;
 // The stream isn't known to report the effort level, so the one requested
 // when the prompt was sent is used (history.js reads it from the session file).
@@ -216,10 +216,14 @@ function pageCount () {
 
 function updatePaginationControls () {
 	let pages = pageCount();
-	// max before value: the field's range must already allow the new value when
-	// it's set, otherwise it can still read (or snap back to) the old page.
-	document.getElementById('pageInput').max = pages;
-	document.getElementById('pageInput').value = currentPage;
+	// A select rather than a number field: JAWS's "next edit field" quick key
+	// would otherwise stop on it before reaching the prompt. Options are only
+	// rebuilt when the page count changes, so the focused select isn't disturbed.
+	let pageSelect = document.getElementById('pageInput');
+	if (pageSelect.options.length !== pages) {
+		pageSelect.replaceChildren(...Array.from({ length: pages }, (_, i) => new Option(String(i + 1), String(i + 1))));
+	}
+	pageSelect.value = String(currentPage);
 	document.getElementById('totalPagesLabel').textContent = t('label.totalPages', { count: pages });
 	document.getElementById('firstPageButton').disabled = currentPage <= 1;
 	document.getElementById('prevPageButton').disabled = currentPage <= 1;
@@ -393,12 +397,17 @@ function setStatus (text) {
 // toggled on the region itself, so the line is always readable on demand.
 function setProgress (text, { silent = false } = {}) {
 	let area = document.getElementById('progressArea');
+	let line = document.getElementById('progressLine');
+	// An unchanged line is left alone: the CLI repeats some steps (a stream of
+	// thinking counters, a thinking block right after them...) and rewriting the
+	// same text could make the screen reader announce it again.
+	if (line.textContent === text) return;
 	let live = area.getAttribute('aria-live');
 	if (silent && live === 'polite') {
 		area.setAttribute('aria-live', 'off');
 		setTimeout(() => area.setAttribute('aria-live', live), 300);
 	}
-	document.getElementById('progressLine').textContent = text;
+	line.textContent = text;
 }
 
 function setProgressAnnounce (enabled) {
@@ -437,6 +446,10 @@ function describeToolStep (name, input) {
 function updateProgressFromMessage (message) {
 	if (message.type === 'system' && message.subtype === 'init') {
 		setProgress(t('progress.starting'));
+	} else if (message.type === 'system' && message.subtype === 'thinking_tokens') {
+		// Sent while the model is still thinking, well before its thinking block
+		// is complete: lets "thinking" show up as it happens.
+		setProgress(t('progress.thinking'));
 	} else if (message.type === 'assistant') {
 		let content = message.message?.content ?? [];
 		let toolUse = content.findLast(item => item.type === 'tool_use');
@@ -526,10 +539,10 @@ function exportSessionMarkdown () {
 	URL.revokeObjectURL(url);
 }
 
-// Options for the session as a whole, shown before the message log. Renommer/
-// Dupliquer reuse the same actions as the session list's own options;
-// Copier/Exporter work on the in-memory log directly, so they're available
-// even for a brand new, not-yet-saved session.
+// Options for the session as a whole, shown before the message log. Rename
+// reuses the same action as the session list's own options; Copy/Export work
+// on the in-memory log directly, so they're available even for a brand new,
+// not-yet-saved session.
 function renderSessionOptions () {
 	let container = document.getElementById('sessionOptionsArea');
 	container.textContent = '';
@@ -542,11 +555,6 @@ function renderSessionOptions () {
 	renameButton.disabled = !currentSessionId;
 	renameButton.addEventListener('click', () => renameSession(currentSessionId, currentSessionTitle));
 
-	let duplicateButton = create('button', t('button.duplicate'));
-	duplicateButton.type = 'button';
-	duplicateButton.disabled = !currentSessionId;
-	duplicateButton.addEventListener('click', () => duplicateSessionAction(currentSessionId));
-
 	let copyButton = create('button', t('button.copyAllSession'));
 	copyButton.type = 'button';
 	copyButton.addEventListener('click', () => copyTextToClipboard(buildSessionMarkdown()));
@@ -555,16 +563,9 @@ function renderSessionOptions () {
 	exportButton.type = 'button';
 	exportButton.addEventListener('click', exportSessionMarkdown);
 
-	let moveButton = create('button', t('button.move'));
-	moveButton.type = 'button';
-	moveButton.disabled = !currentSessionId;
-	moveButton.addEventListener('click', () => moveSessionAction(currentSessionId));
-
 	details.appendChild(renameButton);
-	details.appendChild(duplicateButton);
 	details.appendChild(copyButton);
 	details.appendChild(exportButton);
-	details.appendChild(moveButton);
 	container.appendChild(details);
 }
 
@@ -713,70 +714,6 @@ function showConfirmDialog (title, message) {
 	});
 }
 
-// Reusable modal move flow: shows a title, a <select> of every known
-// workspace except the session's current one, and OK/Annuler/Fermer.
-// Resolves with the chosen workspace path, or null if cancelled/closed.
-function showMoveSessionDialog (currentWorkspacePath) {
-	return new Promise(resolve => {
-		let dialog = document.getElementById('questionArea');
-		dialog.textContent = '';
-		dialog.oncancel = null;
-
-		function finish (value) {
-			dialog.textContent = '';
-			if (dialog.open) dialog.close();
-			resolve(value);
-		}
-
-		let closeButton = create('button', t('button.close'));
-		closeButton.type = 'button';
-		closeButton.addEventListener('click', () => finish(null));
-		dialog.appendChild(closeButton);
-		dialog.appendChild(create('h2', t('dialog.moveSessionTitle')));
-
-		let form = document.createElement('form');
-		let fieldId = 'moveSessionTargetField';
-		let label = create('label', t('dialog.moveSessionLabel'));
-		label.setAttribute('for', fieldId);
-		let field = document.createElement('select');
-		field.id = fieldId;
-		for (let workspace of workspaces) {
-			if (workspace.path === currentWorkspacePath) continue;
-			let option = document.createElement('option');
-			option.value = workspace.path;
-			option.textContent = workspaceLabel(workspace.path);
-			field.appendChild(option);
-		}
-
-		let okButton = create('button', t('button.ok'));
-		okButton.type = 'submit';
-		let cancelButton = create('button', t('button.cancel'));
-		cancelButton.type = 'button';
-		cancelButton.addEventListener('click', () => finish(null));
-
-		form.appendChild(label);
-		form.appendChild(field);
-		form.appendChild(okButton);
-		form.appendChild(cancelButton);
-		form.addEventListener('submit', event => {
-			event.preventDefault();
-			finish(field.value || null);
-		});
-		dialog.appendChild(form);
-
-		dialog.addEventListener('cancel', () => finish(null), { once: true });
-		dialog.showModal();
-		field.focus();
-	});
-}
-
-// A tool_result's content is either a plain string or a list of text blocks.
-function toolResultText (content) {
-	if (typeof content === 'string') return content;
-	if (Array.isArray(content)) return content.map(block => block.text ?? '').join(' ');
-	return '';
-}
-
 // Permission requests are a closed question (allow-once / always-allow / deny):
 // only the option buttons answer, the prompt field stays unavailable. There's
 // no live pause on the CLI side — see doc/plan.md: an unauthorized tool just comes
@@ -879,18 +816,6 @@ function cacheToolUse (message) {
 	}
 }
 
-// What a genuine permission denial says in its tool_result. Two wordings
-// confirmed on real runs: Write ("Claude requested permissions to write to
-// <path>, but you haven't granted it yet."; the mock words it "to use X", so
-// only the common tail is matched) and Bash ("This command requires approval",
-// "This Bash command contains multiple operations. The following part
-// requires approval: ...", and "mkdir in '<path>' needs approval. The path is
-// outside the working directories for this session..."). Any other tool error ("String to replace not found", "File has been
-// modified since read"...) is an ordinary failure the model corrects itself:
-// no abort, no popup. Denials worded differently are caught at the end of the
-// run through the result's permission_denials (see onServerMessage).
-const PERMISSION_DENIAL_PATTERN = /haven['’]t granted it yet|(requires?|needs?) approval/i;
-
 // Tools granted for the run in flight only ("allow once"): a denial for one of
 // them can't be fixed by allowing it again.
 let runGrantedTools = [];
@@ -899,32 +824,37 @@ function isToolAlreadyAllowed (toolName) {
 	return allowedTools.includes(toolName) || runGrantedTools.includes(toolName);
 }
 
-// Returns true if this message was a genuine permission denial and has been
-// handled (popup shown, CLI cut), so the caller can skip its normal display.
-function handleIfToolDenied (message) {
-	for (let item of message.message?.content ?? []) {
-		if (item.type !== 'tool_result' || !item.is_error) continue;
-		let errorText = toolResultText(item.content);
-		if (!PERMISSION_DENIAL_PATTERN.test(errorText)) continue;
+// A permission request is recognised by the CLI's own marker, not by wording:
+// right before the error tool_result of every denied tool it emits
+// { type: 'system', subtype: 'permission_denied', tool_name, tool_use_id,
+// message } (seen on real runs for Write, Edit, Bash and in dontAsk mode,
+// whatever the text of the denial). An ordinary tool error ("String to replace
+// not found", "File has been modified since read"...) carries no such marker:
+// no abort, no popup, the model corrects it itself.
+// Returns true if the message was a denial and has been dealt with.
+function handleIfPermissionDenied (message) {
+	if (message.type !== 'system' || message.subtype !== 'permission_denied') return false;
+	// A question is already open (several denials in the same step): the first
+	// one is the one asked about.
+	if (awaitingToolPermission) return true;
 
-		let toolInfo = toolUseCache.get(item.tool_use_id);
-		let toolName = toolInfo?.name ?? 'Tool';
-		if (isToolAlreadyAllowed(toolName)) {
-			// Allowing again would only loop (protected path, deny rule...): show
-			// the error instead of asking.
-			appendMessage('error', t('error.permissionStillDenied', { tool: toolName, error: errorText }));
-			continue;
-		}
-		showToolPermissionRequest(toolName, toolInfo?.input, item.tool_use_id, errorText);
-		send({ type: 'abort' });
+	let toolInfo = toolUseCache.get(message.tool_use_id);
+	let toolName = message.tool_name ?? toolInfo?.name ?? 'Tool';
+	if (isToolAlreadyAllowed(toolName)) {
+		// Allowing again would only loop (protected path, deny rule...): show the
+		// error instead of asking.
+		appendMessage('error', t('error.permissionStillDenied', { tool: toolName, error: message.message ?? '' }));
 		return true;
 	}
-	return false;
+	showToolPermissionRequest(toolName, toolInfo?.input, message.tool_use_id, message.message);
+	send({ type: 'abort' });
+	return true;
 }
 
-// Fallback for denials whose tool_result wording isn't recognised: the
-// result message lists them (permission_denials), but only once the run is
-// over. Asks about the first one that allowing could still fix.
+// Fallback for a denial the marker above didn't catch (an older CLI without
+// it, for instance): the result message lists every denial in
+// permission_denials, but only once the run is over. Asks about the first one
+// that allowing could still fix.
 function handleDeniedAtEnd (message) {
 	let denial = (message.permission_denials ?? []).find(entry => !isToolAlreadyAllowed(entry.tool_name));
 	if (!denial) return false;
@@ -942,6 +872,30 @@ async function fetchFreshTitle () {
 	await loadSessionList();
 }
 
+// Same filler as the history hides (server/history.js): nothing worth a log
+// entry, whichever model wrote it.
+function isShowableText (text) {
+	let bare = String(text ?? '').trim().toLowerCase();
+	return Boolean(bare) && bare !== 'no response requested.';
+}
+
+// Shows each text the model writes as it arrives. The CLI sends every assistant
+// text as its own message, often between tool calls; only the last one is also
+// carried by the final result, so showing just the result would drop the
+// others (and the whole answer when the turn ends on a tool call). Same
+// content as the rebuilt history, so a page reload shows no difference.
+function showAssistantText (message) {
+	// A "<synthetic>" message is written by the CLI itself: when it says
+	// something (a usage-limit notice...) it is shown, but not under a model name
+	// or effort level that don't exist.
+	let synthetic = message.message?.model === '<synthetic>';
+	for (let item of message.message?.content ?? []) {
+		if (item.type === 'text' && isShowableText(item.text)) {
+			appendMessage('claude', item.text, synthetic ? undefined : (message.message?.model ?? lastAssistantModel), synthetic ? undefined : lastRequestedEffort);
+		}
+	}
+}
+
 function onServerMessage (message) {
 	if (message.session_id) {
 		currentSessionId = message.session_id;
@@ -952,13 +906,24 @@ function onServerMessage (message) {
 
 	if (message.type === 'assistant') {
 		cacheToolUse(message);
-		// "<synthetic>" is the CLI's own placeholder for filler replies (such as
-		// "No response requested." to a resume with nothing to continue): not a
-		// real model, and nothing worth showing.
-		if (message.message?.model === '<synthetic>') syntheticTurn = true;
-		else if (message.message?.model) lastAssistantModel = message.message.model;
+		// "<synthetic>" is the CLI's own placeholder model for messages it writes
+		// itself. Only the "No response requested." filler (a resume with nothing
+		// to continue) is dropped: the turn is then treated as filler. A synthetic
+		// message that says something, such as "You've hit your session limit",
+		// is shown like any other text.
+		if (message.message?.model === '<synthetic>') {
+			let saysSomething = (message.message.content ?? []).some(item => item.type === 'text' && isShowableText(item.text));
+			if (!saysSomething) syntheticTurn = true;
+		} else if (message.message?.model) {
+			lastAssistantModel = message.message.model;
+		}
+		showAssistantText(message);
 	}
-	if (message.type === 'user' && handleIfToolDenied(message)) return;
+	if (handleIfPermissionDenied(message)) return;
+	// While a permission question is open the CLI is being cut: what it still
+	// sends (the denied tool_result...) must not touch the progress line. Its
+	// aborted result is handled below.
+	if (awaitingToolPermission && message.type !== 'result') return;
 	updateProgressFromMessage(message);
 
 	// Confirmed for real (see doc/plan.md): field is "suggestion", fires after "result".
@@ -980,13 +945,18 @@ function onServerMessage (message) {
 		}
 		setStatus(t('status.responseFinished'));
 		playSound('notify.mp3');
-		appendMessage('claude', message.result ?? `(${message.subtype})`, lastAssistantModel, lastRequestedEffort);
+		// The texts written during the turn are already in the log (see
+		// showAssistantText), and the final one is repeated by the result: an
+		// identical repeat is dropped by appendMessage. An empty result (the turn
+		// ended on a tool call, with no closing text) adds nothing.
+		let finalText = message.result ?? `(${message.subtype})`;
+		if (isShowableText(finalText)) appendMessage('claude', finalText, lastAssistantModel, lastRequestedEffort);
 		recordTokenUsage(message.usage);
 		if (awaitingFreshTitle && message.subtype !== 'aborted') {
 			awaitingFreshTitle = false;
 			fetchFreshTitle();
 		}
-		// Denials the tool_result check didn't recognise (see handleDeniedAtEnd).
+		// Denials the permission_denied marker didn't catch (see handleDeniedAtEnd).
 		if (message.subtype !== 'aborted') handleDeniedAtEnd(message);
 		return;
 	}
@@ -1144,15 +1114,6 @@ async function renameSession (sessionId, currentTitle) {
 	await loadSessionList();
 }
 
-async function duplicateSessionAction (sessionId) {
-	let result = await duplicateSessionRequest(currentCwd, sessionId);
-	if (!result) {
-		setStatus(t('status.duplicateFailed'));
-		return;
-	}
-	await loadSessionList();
-}
-
 async function deleteSessionAction (sessionId, title) {
 	let confirmed = await showConfirmDialog(
 		t('dialog.deleteSessionTitle'),
@@ -1163,22 +1124,6 @@ async function deleteSessionAction (sessionId, title) {
 	let ok = await deleteSessionRequest(currentCwd, sessionId);
 	if (!ok) {
 		setStatus(t('status.deleteFailed'));
-		return;
-	}
-	if (sessionId === currentSessionId) startNewSession();
-	await loadSessionList();
-}
-
-// Moves the session to another workspace's history, then reloads both lists
-// (per the user's request) — the session list because the moved session is
-// gone from here.
-async function moveSessionAction (sessionId) {
-	let targetCwd = await showMoveSessionDialog(currentCwd);
-	if (!targetCwd) return;
-
-	let ok = await moveSessionRequest(currentCwd, sessionId, targetCwd);
-	if (!ok) {
-		setStatus(t('status.moveFailed'));
 		return;
 	}
 	if (sessionId === currentSessionId) startNewSession();
@@ -1229,19 +1174,11 @@ function renderSessionPage () {
 		let renameButton = create('button', t('button.rename'));
 		renameButton.type = 'button';
 		renameButton.addEventListener('click', () => renameSession(session.sessionId, title));
-		let duplicateButton = create('button', t('button.duplicate'));
-		duplicateButton.type = 'button';
-		duplicateButton.addEventListener('click', () => duplicateSessionAction(session.sessionId));
 		let deleteButton = create('button', t('button.delete'));
 		deleteButton.type = 'button';
 		deleteButton.addEventListener('click', () => deleteSessionAction(session.sessionId, title));
-		let moveButton = create('button', t('button.move'));
-		moveButton.type = 'button';
-		moveButton.addEventListener('click', () => moveSessionAction(session.sessionId));
 		details.appendChild(renameButton);
-		details.appendChild(duplicateButton);
 		details.appendChild(deleteButton);
-		details.appendChild(moveButton);
 
 		let item = document.createElement('li');
 		item.appendChild(button);

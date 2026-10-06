@@ -70,12 +70,14 @@ The user's own workspace list, with the state tied to each entry:
 | `GET /api/sessions/:id?cwd=` | One session: title, messages, token usage, last run options |
 | `PUT /api/sessions/:id/title` | Renames (appends a `custom-title` line, like `claude` does) |
 | `DELETE /api/sessions/:id` | Deletes the session file |
-| `POST /api/sessions/:id/duplicate` | Copies a session |
-| `POST /api/sessions/:id/move` | Moves a session to another workspace's history |
 | `POST /api/pick-folder?lang=` | Opens the native Windows folder dialog on the server machine (PowerShell) and returns the chosen path or `null` |
 
 List responses are sent `no-store` where a stale cache would show deleted
-data.
+data. Errors raised while handling a request are answered as JSON
+(`{ "error": … }`): a client error such as a body that isn't a JSON object
+gets a 4xx without any trace on the console, anything else is logged and
+answered with a plain 500. (Duplicate and move routes for sessions were
+removed on 2026-10-06, see `spec-interface.md`.)
 
 ## 4. History reading (`server/history.js`)
 
@@ -88,10 +90,14 @@ data.
 - **Run options**: the latest `model` (full id, `<synthetic>` ignored),
   `effort` and `permissionMode` recorded on the entries are returned as
   `runOptions`.
-- **Hidden noise**: assistant entries from the `<synthetic>` model, assistant
-  replies that are exactly "No response requested.", and user messages that
-  are exactly "continue" are left out of the returned messages. The files on
-  disk are never modified.
+- **Hidden noise**: assistant replies that are exactly "No response
+  requested." (any model, `<synthetic>` included) and user messages that are
+  exactly "continue" are left out of the returned messages. The files on disk
+  are never modified.
+- **Synthetic messages** (model `<synthetic>`, written by the CLI itself) are
+  kept when they say something, such as the usage-limit notice "You've hit your
+  session limit · resets …": returned with no `model` and no `effort`, and
+  ignored for `runOptions` (they say nothing about how the run was made).
 - Background-task notifications are returned as their own `notification` role.
 
 ## 5. WebSocket channel and CLI invocation
@@ -106,14 +112,29 @@ Server to client: every stdout line of the CLI is forwarded verbatim
 and protocol errors, and `{ type: 'result', subtype: 'aborted' }` after an
 abort.
 
+Shape of a real stream (captured on 2026-10-06, `haiku`, `-p` with
+`stream-json`): `system/init` (with `permissionMode`, `model`, `session_id`…),
+`system/thinking_tokens` (`estimated_tokens`, while the model thinks), one
+`assistant` message per block (`thinking` with empty text, `tool_use`, `text`),
+`user` carrying the `tool_result`, `rate_limit_event`, then `result` (with
+`result`, `permission_denials`, `usage`, `total_cost_usd`, `num_turns`).
+Right before the `tool_result` of every denied tool the CLI emits `system/
+permission_denied` (`tool_name`, `tool_use_id`, `message`). The server does
+not interpret any of it, except the `tool_use`/`tool_result` pair for the
+error log and the `result` line to know a turn is over. The mock
+(`mock/cli-mock.js`) reproduces this shape, including the denial messages.
+
 Invocation: `<cliCommand> -p <prompt> --output-format stream-json --verbose
 --model … --effort … --permission-mode …`, then `--resume <sessionId>` when
 there is one and `--allowed-tools a,b` (kept last, it is variadic). No shell
 is involved, stdin is ignored, the working directory is the workspace.
 
-- One CLI child per WebSocket connection; a second `prompt` while one runs is
-  refused.
-- `abort` kills the child.
+- One CLI child per WebSocket connection; a second `prompt` while a turn is in
+  progress is refused. A child that has already delivered its `result` no
+  longer counts as running (the front end re-enables Send at the result): a
+  prompt arriving then waits for that child to exit (killed after 2 seconds)
+  before the next one starts.
+- `abort` kills the child, or cancels a run that is still starting.
 - In `-p` mode the CLI cannot pause for a permission: a tool that isn't
   allowed comes back as an error and the front end decides what to do (it
   resumes with `--resume` and the tool added to `--allowed-tools`). See the

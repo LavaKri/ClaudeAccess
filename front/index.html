@@ -39,17 +39,17 @@
 </div>
 <div id="tokenUsageArea" class="app-main">
 </div>
-<section id="messageArea" class="app-main" aria-label="Messages" data-i18n-attr="aria-label:aria.messages">
-</section>
 <div id="paginationArea" class="app-main" role="group" aria-label="Message pagination" data-i18n-attr="aria-label:aria.pagination">
 <button type="button" id="firstPageButton" data-i18n="button.firstPage">First page</button>
 <button type="button" id="prevPageButton" data-i18n="button.prevPage">Previous page</button>
 <label for="pageInput" data-i18n="label.page">Page </label>
-<input type="number" id="pageInput" min="1" value="1" size="4">
+<select id="pageInput"><option value="1">1</option></select>
 <span id="totalPagesLabel">of 1</span>
 <button type="button" id="nextPageButton" data-i18n="button.nextPage">Next page</button>
 <button type="button" id="lastPageButton" data-i18n="button.lastPage">Last page</button>
 </div>
+<section id="messageArea" class="app-main" aria-label="Messages" data-i18n-attr="aria-label:aria.messages">
+</section>
 <dialog id="questionArea">
 </dialog>
 <section id="promptArea" class="app-main app-prompt" aria-label="Prompt" data-i18n-attr="aria-label:heading.prompt" tabindex="-1">
@@ -60,7 +60,7 @@
 <button type="button" id="abortButton" disabled data-i18n="button.abort">Abort</button>
 </form>
 </section>
-<div id="progressArea" class="app-main" role="region" aria-label="Progress" data-i18n-attr="aria-label:aria.progress">
+<div id="progressArea" class="app-main">
 <p id="progressLine" tabindex="-1"></p>
 </div>
 <script type="module" src="index.js"></script>

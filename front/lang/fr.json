@@ -66,9 +66,7 @@
 	"status.responseFinished": "Réponse terminée",
 	"status.error": "Erreur",
 	"status.renameFailed": "Échec du renommage de la session.",
-	"status.duplicateFailed": "Échec de la duplication de la session.",
 	"status.deleteFailed": "Échec de la suppression de la session.",
-	"status.moveFailed": "Échec du déplacement de la session.",
 	"status.deleteWorkspaceFailed": "Échec de la suppression de l'espace de travail.",
 
 	"details.messageOptions": "Options pour ce message",
@@ -77,11 +75,9 @@
 	"details.sessionOptionsFor": "Options pour {{title}}",
 	"details.workspaceOptionsFor": "Options pour {{name}}",
 	"button.rename": "Renommer",
-	"button.duplicate": "Dupliquer",
 	"button.delete": "Supprimer",
 	"button.removeFromList": "Retirer de la liste",
 	"status.workspaceRemoved": "Espace de travail « {{name}} » retiré de la liste. Son historique est conservé.",
-	"button.move": "Déplacer...",
 	"button.copyAllSession": "Copier toute la session",
 	"button.exportAllSession": "Exporter toute la session",
 
@@ -110,8 +106,6 @@
 	"dialog.existingWorkspacesHint": "Dossiers déjà utilisés avec Claude et absents de la liste. Choisis-en un pour l'ajouter :",
 	"dialog.existingWorkspacesNone": "Aucun autre dossier trouvé : tous les espaces de travail connus sont déjà dans la liste.",
 	"dialog.addWorkspacePathLabel": "Chemin du dossier :",
-	"dialog.moveSessionTitle": "Déplacer la session",
-	"dialog.moveSessionLabel": "Espace de travail de destination :",
 	"dialog.deleteWorkspaceTitle": "Supprimer l'espace de travail",
 	"dialog.deleteWorkspaceMessage": "Supprimer définitivement l'espace de travail « {{name}} » et toutes ses sessions ? Cette action est irréversible.",
 

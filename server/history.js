@@ -6,7 +6,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { randomUUID } from 'node:crypto';
 
 const DEFAULT_HOME_DIR = path.join(os.homedir(), '.claude');
 
@@ -217,19 +216,21 @@ async function readSessionFile (filePath, cwd) {
 		if (entry.type === 'custom-title') { customTitle = entry.customTitle; continue; }
 		if (entry.type !== 'user' && entry.type !== 'assistant') continue;
 
-		// Filler the CLI writes itself (model "<synthetic>", text "No response
-		// requested.") when a resume has nothing to continue: not a real reply,
-		// left out. See also the text checks below for the "continue" prompt.
-		if (entry.type === 'assistant' && entry.message?.model === '<synthetic>') continue;
+		// "<synthetic>" is the placeholder model of messages the CLI writes itself.
+		// Most are the "No response requested." filler (hidden by the text check
+		// below, like any other model's), but some carry real information for the
+		// user, such as "You've hit your session limit · resets 2:10pm": those are
+		// kept, and shown without the meaningless "<synthetic>" model name.
+		let synthetic = entry.type === 'assistant' && entry.message?.model === '<synthetic>';
 
 		// Run options of the latest turn, as recorded by Claude Code itself on
 		// the entries (full model id, effort, permission mode) — lets any
-		// browser reopen a session with the options it was last run with.
-		// "<synthetic>" is the placeholder model of CLI-written filler messages.
-		if (entry.permissionMode) runOptions.permissionMode = entry.permissionMode;
-		if (entry.effort) runOptions.effort = entry.effort;
-		if (entry.type === 'assistant' && entry.message?.model && entry.message.model !== '<synthetic>') {
-			runOptions.model = entry.message.model;
+		// browser reopen a session with the options it was last run with. A
+		// synthetic message isn't a real run, so it says nothing about them.
+		if (!synthetic) {
+			if (entry.permissionMode) runOptions.permissionMode = entry.permissionMode;
+			if (entry.effort) runOptions.effort = entry.effort;
+			if (entry.type === 'assistant' && entry.message?.model) runOptions.model = entry.message.model;
 		}
 
 		if (entry.timestamp) {
@@ -279,7 +280,12 @@ async function readSessionFile (filePath, cwd) {
 		if (entry.type === 'user' && bareText === 'continue') continue;
 		if (entry.type === 'assistant' && bareText === 'no response requested.') continue;
 		if (entry.type === 'assistant') lastMessagePreview = text.slice(0, 100);
-		messages.push({ role: entry.message?.role || entry.type, text, model: entry.message?.model, effort: entry.effort });
+		messages.push({
+			role: entry.message?.role || entry.type,
+			text,
+			model: synthetic ? undefined : entry.message?.model,
+			effort: synthetic ? undefined : entry.effort,
+		});
 	}
 
 	// Nothing readable (unparseable lines, or only hidden filler) and no title:
@@ -353,16 +359,6 @@ export async function deleteSession (cwd, sessionId, homeDir) {
 	await fs.unlink(path.join(dir, `${sessionId}.jsonl`));
 }
 
-// Copies the session's raw file under a fresh id: a full, independent replay
-// of the same conversation, exactly like continuing it as a new session would
-// look on disk, rather than a shared/linked history.
-export async function duplicateSession (cwd, sessionId, homeDir) {
-	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
-	let newSessionId = randomUUID();
-	await fs.copyFile(path.join(dir, `${sessionId}.jsonl`), path.join(dir, `${newSessionId}.jsonl`));
-	return newSessionId;
-}
-
 // Deletes a workspace entirely: its session history directory (recursively —
 // wiping every .jsonl the way deleteSession does one at a time) plus its
 // entry in ~/.claude.json's "projects" object, so `claude` itself no longer
@@ -383,17 +379,4 @@ export async function deleteProject (projectPath, homeDir) {
 	} catch {
 		// No ~/.claude.json, or no matching entry — nothing more to do.
 	}
-}
-
-// Moves the session's raw file to another project's history directory,
-// keeping the same session id: a session is identified only by its filename,
-// never by anything tied to the workspace, so relocating the file is all
-// `claude --resume` needs to pick it up from its new home. The target
-// directory is created if this is the first session ever moved there (mirrors
-// what `claude` itself does the first time it runs in a fresh cwd).
-export async function moveSession (cwd, sessionId, targetCwd, homeDir) {
-	let sourceDir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
-	let targetDir = path.join(projectsDir(homeDir), encodeProjectPath(targetCwd));
-	await fs.mkdir(targetDir, { recursive: true });
-	await fs.rename(path.join(sourceDir, `${sessionId}.jsonl`), path.join(targetDir, `${sessionId}.jsonl`));
 }

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
-import { listProjects, listHistoryProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession, deleteProject } from './history.js';
+import { listProjects, listHistoryProjects, listSessions, loadSession, setCustomTitle, deleteSession, deleteProject } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
 import { getWorkspaceStore, saveWorkspaceStore } from './workspaces.js';
 
@@ -157,23 +157,22 @@ app.post('/api/pick-folder', async (req, res) => {
 	});
 });
 
-app.post('/api/sessions/:sessionId/duplicate', async (req, res) => {
-	let cwd = String(req.query.cwd || process.cwd());
-	let { claudeHomeDir } = await getConfig();
-	let newSessionId = await duplicateSession(cwd, req.params.sessionId, claudeHomeDir);
-	res.json({ sessionId: newSessionId });
-});
-
-app.post('/api/sessions/:sessionId/move', async (req, res) => {
-	let cwd = String(req.query.cwd || process.cwd());
-	let targetCwd = String(req.body?.targetCwd || '').trim();
-	if (!targetCwd) {
-		res.status(400).json({ error: 'Missing "targetCwd" field' });
+// Errors raised while handling a request, answered as JSON like the rest of
+// the API (Express' default would be an HTML page). A client error, such as a
+// body that isn't a JSON object, is the caller's mistake: 4xx, no trace on the
+// console. Anything else is a real failure: logged, then a plain 500.
+app.use((err, req, res, next) => {
+	if (res.headersSent) {
+		next(err);
 		return;
 	}
-	let { claudeHomeDir } = await getConfig();
-	await moveSession(cwd, req.params.sessionId, targetCwd, claudeHomeDir);
-	res.json({ ok: true });
+	let status = Number(err.status ?? err.statusCode);
+	if (status >= 400 && status < 500) {
+		res.status(status).json({ error: err.type === 'entity.parse.failed' ? 'Invalid JSON body' : String(err.message || 'Bad request') });
+		return;
+	}
+	console.error(err);
+	res.status(500).json({ error: 'Internal server error' });
 });
 
 const server = http.createServer(app);
@@ -205,8 +204,32 @@ function logToolError (line, toolNames) {
 	}
 }
 
+// Waits for a child that has already delivered its result to exit (it can
+// linger a moment, e.g. to emit a prompt suggestion), killing it if it takes
+// too long, so its trailing output is flushed before the next run starts.
+function waitForExit (child, timeoutMs = 2000) {
+	return new Promise(resolve => {
+		if (child.exitCode !== null || child.signalCode !== null) {
+			resolve();
+			return;
+		}
+		let timer = setTimeout(() => {
+			child.kill();
+			resolve();
+		}, timeoutMs);
+		child.once('exit', () => {
+			clearTimeout(timer);
+			resolve();
+		});
+	});
+}
+
 async function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode, cwd, sessionId, allowedTools }) {
-	if (connectionState.activeChild || connectionState.starting) {
+	// A previous child that already sent its result isn't "running" any more,
+	// even if its process hasn't quite exited: the front end re-enables Send at
+	// the result, so a prompt arriving right then must be accepted.
+	let runningChild = connectionState.activeChild && !connectionState.activeChild.resultSeen;
+	if (runningChild || connectionState.starting) {
 		send(ws, { type: 'error', message: 'A prompt is already running on this connection' });
 		return;
 	}
@@ -214,12 +237,21 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	// message arriving while getConfig() is still pending can't slip past the
 	// guard above and spawn a second concurrent child on this connection.
 	connectionState.starting = true;
+	connectionState.cancelStart = false;
+
+	if (connectionState.activeChild) await waitForExit(connectionState.activeChild);
 
 	let { cliCommand } = await getConfig();
 	let [command, ...baseArgs] = parseCliCommand(useMockCli ? MOCK_CLI_COMMAND : cliCommand);
 	if (!command) {
 		connectionState.starting = false;
 		send(ws, { type: 'error', message: 'No CLI command configured' });
+		return;
+	}
+	// An abort that arrived while the start was pending (see abortPrompt).
+	if (connectionState.cancelStart) {
+		connectionState.starting = false;
+		connectionState.cancelStart = false;
 		return;
 	}
 
@@ -252,6 +284,13 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	lines.on('line', line => {
 		if (!line.trim()) return;
 		logToolError(line, toolNames);
+		if (line.includes('"type":"result"')) {
+			try {
+				if (JSON.parse(line).type === 'result') child.resultSeen = true;
+			} catch {
+				// Not JSON after all: nothing to remember.
+			}
+		}
 		if (ws.readyState === ws.OPEN) ws.send(line);
 	});
 
@@ -259,17 +298,26 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 		send(ws, { type: 'error', message: chunk.toString() });
 	});
 
+	// Only clear the slot if it still holds this child: a finished child can exit
+	// after the next run has already taken its place.
 	child.on('error', err => {
-		connectionState.activeChild = null;
+		if (connectionState.activeChild === child) connectionState.activeChild = null;
 		send(ws, { type: 'error', message: `Failed to start claude process: ${err.message}` });
 	});
 
 	child.on('exit', () => {
-		connectionState.activeChild = null;
+		if (connectionState.activeChild === child) connectionState.activeChild = null;
 	});
 }
 
 function abortPrompt (ws, connectionState) {
+	// A run that is still starting has no live child to kill yet: flag it so
+	// runPrompt gives up instead of spawning one.
+	if (connectionState.starting) {
+		connectionState.cancelStart = true;
+		send(ws, { type: 'result', subtype: 'aborted' });
+		return;
+	}
 	if (!connectionState.activeChild) {
 		send(ws, { type: 'error', message: 'No prompt is currently running on this connection' });
 		return;

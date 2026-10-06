@@ -66,9 +66,7 @@
 	"status.responseFinished": "Response finished",
 	"status.error": "Error",
 	"status.renameFailed": "Failed to rename the session.",
-	"status.duplicateFailed": "Failed to duplicate the session.",
 	"status.deleteFailed": "Failed to delete the session.",
-	"status.moveFailed": "Failed to move the session.",
 	"status.deleteWorkspaceFailed": "Failed to delete the workspace.",
 
 	"details.messageOptions": "Options for this message",
@@ -77,11 +75,9 @@
 	"details.sessionOptionsFor": "Options for {{title}}",
 	"details.workspaceOptionsFor": "Options for {{name}}",
 	"button.rename": "Rename",
-	"button.duplicate": "Duplicate",
 	"button.delete": "Delete",
 	"button.removeFromList": "Remove from list",
 	"status.workspaceRemoved": "Workspace \"{{name}}\" removed from the list. Its history is kept.",
-	"button.move": "Move...",
 	"button.copyAllSession": "Copy whole session",
 	"button.exportAllSession": "Export whole session",
 
@@ -110,8 +106,6 @@
 	"dialog.existingWorkspacesHint": "Folders already used with Claude and missing from the list. Pick one to add it:",
 	"dialog.existingWorkspacesNone": "No other folder found: every known workspace is already in the list.",
 	"dialog.addWorkspacePathLabel": "Folder path:",
-	"dialog.moveSessionTitle": "Move session",
-	"dialog.moveSessionLabel": "Destination workspace:",
 	"dialog.deleteWorkspaceTitle": "Delete workspace",
 	"dialog.deleteWorkspaceMessage": "Permanently delete workspace \"{{name}}\" and all its sessions? This action cannot be undone.",
 

@@ -62,19 +62,3 @@ export async function deleteSession (cwd, sessionId) {
 	return response.ok;
 }
 
-export async function duplicateSession (cwd, sessionId) {
-	let response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/duplicate?cwd=${encodeURIComponent(cwd)}`, {
-		method: 'POST',
-	});
-	if (!response.ok) return null;
-	return response.json();
-}
-
-export async function moveSession (cwd, sessionId, targetCwd) {
-	let response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/move?cwd=${encodeURIComponent(cwd)}`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ targetCwd }),
-	});
-	return response.ok;
-}
