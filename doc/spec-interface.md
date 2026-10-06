@@ -82,7 +82,10 @@ Listed newest first for the current workspace, paginated.
   slot.
 - Pagination: first / previous / page select / next / last, over
   `messagesPerPage` groups. The page picker is a select, not a number input,
-  so JAWS's "next edit field" key goes straight to the prompt. After a run or when opening a session the view
+  so JAWS's "next edit field" key goes straight to the prompt.
+  Previous / next are also bound to Alt+Page Up / Alt+Page Down (shown in
+  the button names and `aria-keyshortcuts`). Previous moves the focus to the
+  heading of the last message group of the new page, next to the first one. After a run or when opening a session the view
   follows the last page; a user reading an earlier page is left alone.
 - Per-group menu: copy.
 - Noise hidden, in the rebuilt history and in the live log alike: replies
@@ -111,6 +114,14 @@ Listed newest first for the current workspace, paginated.
 
 - The prompt field sends with **Ctrl+Enter** or the Send button. While a run is
   in progress the field is read-only, Send is disabled and Abort is enabled.
+- **Send to a new branch** sits next to Send and is enabled and disabled
+  together with it. It sends the prompt with `--fork-session`: the current
+  session stays as it was, and the conversation continues in a copy. The copy
+  is named "From <title of the original>" (set once its first turn has ended,
+  not when the run was aborted) and gets the current run options. There is no
+  screen reader announcement; the session title and the session list show the
+  switch. With no session yet there is nothing to branch from and the button
+  behaves like Send. Ctrl+Enter is still a plain send.
 - After sending, focus moves from the Send button to the **progress line**
   (rather than the "Prompt" region), and its text is written without a live
   announcement because focus already reads it.

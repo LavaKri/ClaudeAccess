@@ -74,6 +74,9 @@ let lastWorkspace = '';
 // isn't known yet, since Claude Code writes it to disk asynchronously after
 // the turn ends — see doc/plan.md. Used to trigger a delayed fetch once done.
 let awaitingFreshTitle = false;
+// Title to give the branch created by "Send to a new branch", once its first
+// turn ends (the session's file only exists by then). Null when none is due.
+let pendingBranchTitle = null;
 
 // tool_use blocks are cached by id so that when the matching tool_result comes
 // back denied, we can show the user which tool was involved.
@@ -348,10 +351,20 @@ function renderMessages () {
 	updatePaginationControls();
 }
 
-function goToPage (page) {
+// `focusGroup` ('first' | 'last') moves the focus to the heading of that
+// message group on the new page, so the Previous / Next buttons (and their
+// shortcuts) land the screen reader on the messages rather than leaving it on a
+// button that may have just become disabled.
+function goToPage (page, focusGroup) {
 	if (Number.isInteger(page)) currentPage = page;
 	renderMessages();
 	setStatus(t('status.page', { page: currentPage, total: pageCount() }));
+	if (!focusGroup) return;
+	let headings = document.getElementById('messageArea').querySelectorAll('h2');
+	let heading = focusGroup === 'last' ? headings[headings.length - 1] : headings[0];
+	if (!heading) return;
+	heading.tabIndex = -1;
+	heading.focus();
 }
 
 // Adds a message to the log, merging it into the previous group when it's the
@@ -582,14 +595,15 @@ function setWorking (working) {
 	// instead, so the screen reader reads the new state right away. The text is
 	// written silently first: the focus already makes it read, and the live
 	// region would announce the same change a second time.
-	if (working && document.activeElement === document.getElementById('sendButton')) {
+	let sendButtonIds = ['sendButton', 'sendBranchButton'];
+	if (working && sendButtonIds.includes(document.activeElement?.id)) {
 		setProgress(progressText, { silent: true });
 		document.getElementById('progressLine').focus();
 	} else {
 		setProgress(progressText);
 	}
 	document.getElementById('prompt').readOnly = working;
-	document.getElementById('sendButton').disabled = working;
+	for (let id of sendButtonIds) document.getElementById(id).disabled = working;
 	document.getElementById('abortButton').disabled = !working;
 }
 
@@ -952,6 +966,7 @@ function onServerMessage (message) {
 		let finalText = message.result ?? `(${message.subtype})`;
 		if (isShowableText(finalText)) appendMessage('claude', finalText, lastAssistantModel, lastRequestedEffort);
 		recordTokenUsage(message.usage);
+		if (pendingBranchTitle && message.subtype !== 'aborted') nameBranch();
 		if (awaitingFreshTitle && message.subtype !== 'aborted') {
 			awaitingFreshTitle = false;
 			fetchFreshTitle();
@@ -981,6 +996,10 @@ async function onPromptSubmit (event) {
 	event.preventDefault();
 	if (!text.trim()) return;
 
+	// Without a session there is nothing to branch from: it is a plain send.
+	let fork = event.submitter?.id === 'sendBranchButton' && Boolean(currentSessionId);
+	if (fork) pendingBranchTitle = t('session.branchTitle', { title: currentSessionTitle });
+
 	promptField.value = '';
 	appendMessage('you', text);
 
@@ -994,9 +1013,19 @@ async function onPromptSubmit (event) {
 	let runOptions = getRunOptions();
 	lastRequestedEffort = runOptions.effort;
 	await send({
-		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, allowedTools,
+		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, fork, allowedTools,
 		...runOptions,
 	});
+}
+
+// Names the branch once its first turn has ended. The new session id reached
+// currentSessionId through the stream; the run options were copied to it at
+// the same time (see onServerMessage).
+async function nameBranch () {
+	let title = pendingBranchTitle;
+	pendingBranchTitle = null;
+	if (await renameSessionRequest(currentCwd, currentSessionId, title)) setSessionTitle(title);
+	await loadSessionList();
 }
 
 async function onAbortClick () {
@@ -1020,6 +1049,7 @@ function startNewSession () {
 	currentSessionId = null;
 	resetAllowedTools();
 	awaitingFreshTitle = false;
+	pendingBranchTitle = null;
 	setSessionTitle(defaultTitle());
 	rememberLastSession(null);
 	updateSessionAriaCurrent();
@@ -1067,6 +1097,7 @@ async function resumeSession (sessionId) {
 	currentSessionId = session.sessionId;
 	resetAllowedTools();
 	awaitingFreshTitle = false;
+	pendingBranchTitle = null;
 	setSessionTitle(session.title || defaultTitle());
 	messages = groupMessages(session.messages);
 	currentPage = pageCount();
@@ -1639,8 +1670,17 @@ async function onWindowLoad () {
 	});
 
 	document.getElementById('firstPageButton').addEventListener('click', () => goToPage(1));
-	document.getElementById('prevPageButton').addEventListener('click', () => goToPage(currentPage - 1));
-	document.getElementById('nextPageButton').addEventListener('click', () => goToPage(currentPage + 1));
+	document.getElementById('prevPageButton').addEventListener('click', () => goToPage(currentPage - 1, 'last'));
+	document.getElementById('nextPageButton').addEventListener('click', () => goToPage(currentPage + 1, 'first'));
+	// Alt+PageUp / Alt+PageDown: same as the Previous / Next page buttons, from anywhere.
+	document.addEventListener('keydown', event => {
+		if (!event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+		let id = event.key === 'PageUp' ? 'prevPageButton' : event.key === 'PageDown' ? 'nextPageButton' : null;
+		if (!id) return;
+		event.preventDefault();
+		let button = document.getElementById(id);
+		if (!button.disabled) button.click();
+	});
 	document.getElementById('lastPageButton').addEventListener('click', () => goToPage(pageCount()));
 	document.getElementById('pageInput').addEventListener('change', event => {
 		let page = Number(event.target.value);

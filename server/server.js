@@ -224,7 +224,7 @@ function waitForExit (child, timeoutMs = 2000) {
 	});
 }
 
-async function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode, cwd, sessionId, allowedTools }) {
+async function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode, cwd, sessionId, fork, allowedTools }) {
 	// A previous child that already sent its result isn't "running" any more,
 	// even if its process hasn't quite exited: the front end re-enables Send at
 	// the result, so a prompt arriving right then must be accepted.
@@ -269,6 +269,9 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 		'--permission-mode', permissionMode || 'default',
 	];
 	if (sessionId) args.push('--resume', sessionId);
+	// New branch: the CLI copies the session's history under a new session id and
+	// leaves the original untouched. Meaningless without a session to resume.
+	if (sessionId && fork) args.push('--fork-session');
 	if (allowedTools?.length) args.push('--allowed-tools', allowedTools.join(','));
 
 	// stdin explicitly ignored: nothing is ever written to it, and leaving it

@@ -104,7 +104,7 @@ removed on 2026-10-06, see `spec-interface.md`.)
 
 Client to server (JSON):
 - `prompt`: `{ prompt, model, effort, permissionMode, cwd, sessionId?,
-  allowedTools? }`
+  fork?, allowedTools? }`
 - `abort`
 
 Server to client: every stdout line of the CLI is forwarded verbatim
@@ -126,7 +126,9 @@ error log and the `result` line to know a turn is over. The mock
 
 Invocation: `<cliCommand> -p <prompt> --output-format stream-json --verbose
 --model … --effort … --permission-mode …`, then `--resume <sessionId>` when
-there is one and `--allowed-tools a,b` (kept last, it is variadic). No shell
+there is one, `--fork-session` when `fork` is true and a session is given (the
+CLI then continues under a new session id and leaves the original untouched),
+and `--allowed-tools a,b` (kept last, it is variadic). No shell
 is involved, stdin is ignored, the working directory is the workspace.
 
 - One CLI child per WebSocket connection; a second `prompt` while a turn is in

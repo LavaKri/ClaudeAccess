@@ -286,24 +286,30 @@ forked turn. The forked turn cost the same as a normal one, with the prompt
 cache re-used (about 24,700 tokens read from cache). Not tried: how the
 history loader and the session list display B in the interface.
 
-**What it takes.**
-- Server (`runPrompt`): accept `fork: true` in the `prompt` message and add
-  `--fork-session` after `--resume`.
-- Front: the stream's `session_id` already updates `currentSessionId`, so the
-  UI switches to the branch by itself; the session list must be refreshed. The
-  button needs a clear name ("Send in a new branch") and is meaningless
-  without a session (disable or hide it).
-- Mock: understand `--fork-session` and return a new session id.
+**Status (2026-10-07): implemented**, "Send to a new branch" (fr: "Envoyer vers
+une nouvelle branche"), see `spec-interface.md` section 5 and
+`spec-server.md`. Decisions: the branch is named "From <title of the
+original>" (set at the end of its first turn, through the existing rename
+route); the current run options are copied to it; no screen reader
+announcement; the button is enabled and disabled together with Send, and acts
+like Send when there is no session yet. Checked offline with the mock (new
+session id with the flag, same id without) and the CLI behaviour above; not
+yet tried by hand in the browser.
 
-**Open.**
-- Screen reader: announce the switch (`aria-live`, for example "New branch
-  created from <title>").
-- Title of the branch: it probably inherits the title of A, giving two
-  identical entries. Not checked. Suggest an automatic suffix.
+**Still open.**
 - Parent link: B's file holds no reference to A (no `forkedFrom` or similar
-  found). Showing a tree of branches needs the link kept by the server.
-- Per-session run options (`localStorage`, keyed by session id) must be copied
-  to the branch.
-- Permission resume: after a denial inside a branch, resume B with plain
-  `--resume B`, never with `--fork-session`, or every resume would create yet
-  another branch.
+  found). Showing a tree of branches would need the link kept by the server.
+- A branch aborted before its first result stays untitled until a later turn
+  ends in it (the title is only written once a result arrives, because
+  writing it earlier would create the session file).
+- Session list de-duplication (`listSessions`, by subset of message ids): a
+  branch with a new model message has more ids than the original, so both are
+  listed. A branch with no model message yet (aborted early) has exactly the
+  original's ids and is dropped, or replaces it, depending on file order. Not
+  tried by hand.
+- Permission resume inside a branch uses plain `--resume B`, no fork flag
+  (so every resume does not create yet another branch); not tried by hand.
+
+## Tasklist
+In the official interface you can view a tasklist. 
+Create a file or a pop-up to see tasks ?

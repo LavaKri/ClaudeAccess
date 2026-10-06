@@ -30,6 +30,7 @@ function parseArgs (argv) {
 		else if (arg === '--effort') args.effort = argv[++i] ?? args.effort;
 		else if (arg === '--permission-mode') args.permissionMode = argv[++i] ?? args.permissionMode;
 		else if (arg === '--resume') args.resume = argv[++i] ?? '';
+		else if (arg === '--fork-session') args.fork = true;
 		else if (arg === '--allowed-tools' || arg === '--allowedTools') args.allowedTools = (argv[++i] ?? '').split(',').filter(Boolean);
 		// --output-format/--verbose and anything else: accepted, ignored —
 		// this mock always emits the same stream-json shape regardless.
@@ -148,8 +149,9 @@ async function emitThinking (sessionId, model) {
 }
 
 async function main () {
-	let { prompt, model, effort, resume, allowedTools } = parseArgs(process.argv.slice(2));
-	let sessionId = resume || randomUUID();
+	let { prompt, model, effort, resume, fork, allowedTools } = parseArgs(process.argv.slice(2));
+	// Like the real CLI, --fork-session with --resume continues under a new id.
+	let sessionId = (resume && !fork) ? resume : randomUUID();
 	let messageId = `msg_mock_${randomUUID()}`;
 	let isResuming = Boolean(resume);
 
