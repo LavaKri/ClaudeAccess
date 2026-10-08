@@ -97,6 +97,15 @@ function getRunOptions () {
 	};
 }
 
+// Effort forced for the current run by "Send with low effort" (null = use the
+// select). Kept for the silent "continue" retries of that run, and never
+// written to the select or to the session's saved run options.
+let runEffortOverride = null;
+
+function getRunOptionsForRun () {
+	return { ...getRunOptions(), ...(runEffortOverride && { effort: runEffortOverride }) };
+}
+
 function applyRunOptions (options) {
 	if (!options) return;
 	if (options.model) document.getElementById('modelSelect').value = options.model;
@@ -595,7 +604,7 @@ function setWorking (working) {
 	// instead, so the screen reader reads the new state right away. The text is
 	// written silently first: the focus already makes it read, and the live
 	// region would announce the same change a second time.
-	let sendButtonIds = ['sendButton', 'sendBranchButton'];
+	let sendButtonIds = ['sendButton', 'sendLowEffortButton', 'sendBranchButton'];
 	if (working && sendButtonIds.includes(document.activeElement?.id)) {
 		setProgress(progressText, { silent: true });
 		document.getElementById('progressLine').focus();
@@ -607,11 +616,32 @@ function setWorking (working) {
 	document.getElementById('abortButton').disabled = !working;
 }
 
+// Opens/closes the shared modal dialog, putting the focus back where it was
+// before the dialog opened. Done by hand rather than left to the browser's
+// native restore, so it doesn't depend on browser behavior. If that element
+// is gone or disabled by then (e.g. the Send button once a run started), the
+// focus is left wherever it already is.
+let focusBeforeDialog = null;
+
+function openDialog (dialog) {
+	if (dialog.open) return;
+	focusBeforeDialog = document.activeElement;
+	dialog.showModal();
+}
+
+function closeDialog (dialog) {
+	if (!dialog.open) return;
+	dialog.close();
+	let target = focusBeforeDialog;
+	focusBeforeDialog = null;
+	if (target?.isConnected && !target.disabled && target !== document.body) target.focus();
+}
+
 function hideQuestion () {
 	let dialog = document.getElementById('questionArea');
 	dialog.oncancel = null;
 	dialog.textContent = '';
-	if (dialog.open) dialog.close();
+	closeDialog(dialog);
 }
 
 // Renders the question dialog with a text and a set of option buttons, and
@@ -634,7 +664,7 @@ function renderQuestion (text, options, extraLines = []) {
 		firstButton ??= button;
 	}
 	dialog.oncancel = event => event.preventDefault();
-	if (!dialog.open) dialog.showModal();
+	openDialog(dialog);
 	setStatus([text, ...extraLines].join(' '));
 	firstButton?.focus();
 }
@@ -650,7 +680,7 @@ function showInputDialog (title, message, defaultValue = '') {
 
 		function finish (value) {
 			dialog.textContent = '';
-			if (dialog.open) dialog.close();
+			closeDialog(dialog);
 			resolve(value);
 		}
 
@@ -686,7 +716,7 @@ function showInputDialog (title, message, defaultValue = '') {
 		dialog.appendChild(form);
 
 		dialog.addEventListener('cancel', () => finish(null), { once: true });
-		dialog.showModal();
+		openDialog(dialog);
 		field.focus();
 		field.select();
 	});
@@ -702,7 +732,7 @@ function showConfirmDialog (title, message) {
 
 		function finish (value) {
 			dialog.textContent = '';
-			if (dialog.open) dialog.close();
+			closeDialog(dialog);
 			resolve(value);
 		}
 
@@ -723,7 +753,7 @@ function showConfirmDialog (title, message) {
 		dialog.appendChild(cancelButton);
 
 		dialog.addEventListener('cancel', () => finish(false), { once: true });
-		dialog.showModal();
+		openDialog(dialog);
 		confirmButton.focus();
 	});
 }
@@ -776,7 +806,7 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	setWorking(true);
 	setStatus('');
 	// Hidden from the message log: this isn't a message the user actually typed.
-	let runOptions = getRunOptions();
+	let runOptions = getRunOptionsForRun();
 	lastRequestedEffort = runOptions.effort;
 	await send({
 		type: 'prompt', prompt: 'continue', cwd: currentCwd,
@@ -1010,7 +1040,8 @@ async function onPromptSubmit (event) {
 	// The progress line now says it; clearing (not rewriting) the status avoids
 	// a second, redundant "working" announcement.
 	setStatus('');
-	let runOptions = getRunOptions();
+	runEffortOverride = event.submitter?.id === 'sendLowEffortButton' ? 'low' : null;
+	let runOptions = getRunOptionsForRun();
 	lastRequestedEffort = runOptions.effort;
 	await send({
 		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, fork, allowedTools,
@@ -1440,15 +1471,20 @@ async function loadWorkspaces () {
 }
 
 async function selectWorkspace (workspacePath) {
+	// Read before startNewSession(), which forgets the current workspace's last
+	// session (and currentCwd is already the new workspace by then).
+	let lastSessionId = findWorkspace(workspacePath)?.lastSessionId;
 	currentCwd = workspacePath;
 	startNewSession();
 	lastWorkspace = workspacePath;
 	persistWorkspaces();
 	updateWorkspaceAriaCurrent();
 	await loadSessionList();
-	// Open the most recent session (the list arrives newest first) rather than
-	// leaving a blank conversation with nothing selected.
-	if (allSessions.length) await resumeSession(allSessions[0].sessionId);
+	// Reopen the session this workspace was last on; if it's unknown or gone,
+	// the most recent one (the list arrives newest first) rather than leaving a
+	// blank conversation with nothing selected.
+	let session = allSessions.find(item => item.sessionId === lastSessionId) ?? allSessions[0];
+	if (session) await resumeSession(session.sessionId);
 }
 
 // Server-side native folder browser (see server.js /api/pick-folder) — only
@@ -1474,7 +1510,7 @@ function showAddWorkspaceDialog () {
 
 		function finish (value) {
 			dialog.textContent = '';
-			if (dialog.open) dialog.close();
+			closeDialog(dialog);
 			resolve(value);
 		}
 
@@ -1520,7 +1556,7 @@ function showAddWorkspaceDialog () {
 		dialog.appendChild(form);
 
 		dialog.addEventListener('cancel', () => finish(null), { once: true });
-		dialog.showModal();
+		openDialog(dialog);
 		field.focus();
 	});
 }
@@ -1541,7 +1577,7 @@ function showExistingWorkspacesDialog (candidates) {
 
 		function finish (value) {
 			dialog.textContent = '';
-			if (dialog.open) dialog.close();
+			closeDialog(dialog);
 			resolve(value);
 		}
 
@@ -1570,7 +1606,7 @@ function showExistingWorkspacesDialog (candidates) {
 		}
 
 		dialog.addEventListener('cancel', () => finish(null), { once: true });
-		dialog.showModal();
+		openDialog(dialog);
 		firstFocus.focus();
 	});
 }
@@ -1664,9 +1700,14 @@ async function onWindowLoad () {
 	document.getElementById('olderWorkspacesButton').addEventListener('click', () => goToWorkspacesPage(workspacesPage + 1));
 
 	document.getElementById('prompt').addEventListener('keydown', event => {
-		if (event.key !== 'Enter' || !event.ctrlKey) return;
+		if (event.key !== 'Enter') return;
+		// Ctrl+Enter sends; Shift+Enter sends with low effort.
+		let sender = event.ctrlKey ? document.getElementById('sendButton')
+			: event.shiftKey ? document.getElementById('sendLowEffortButton')
+			: null;
+		if (!sender) return;
 		event.preventDefault();
-		if (!document.getElementById('sendButton').disabled) promptForm.requestSubmit();
+		if (!sender.disabled) promptForm.requestSubmit(sender);
 	});
 
 	document.getElementById('firstPageButton').addEventListener('click', () => goToPage(1));

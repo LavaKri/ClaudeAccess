@@ -27,7 +27,8 @@
 
 	"heading.prompt": "Prompt",
 	"label.prompt": "Prompt : ",
-	"button.send": "Envoyer",
+	"button.send": "Envoyer (Ctrl+Entrée)",
+	"button.sendLowEffort": "Envoyer avec un effort faible (Maj+Entrée)",
 	"button.sendBranch": "Envoyer vers une nouvelle branche",
 	"session.branchTitle": "Depuis {{title}}",
 	"button.abort": "Interrompre",

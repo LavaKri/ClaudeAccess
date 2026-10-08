@@ -32,8 +32,9 @@ Two-column grid on wide screens, single column on narrow ones.
 The list is the user's own, kept on the server (`workspaces.json`), in the
 order entries were added, paginated with Newer / Older buttons.
 
-- Choosing a workspace makes it current and opens its most recent session;
-  with no sessions the conversation stays empty.
+- Choosing a workspace makes it current and opens the session it was
+  last on (the most recent one if that is unknown or gone); with no sessions
+  the conversation stays empty.
 - **Add a workspace…**: dialog with a path field and a native folder picker
   (a picked folder validates the dialog at once). A path already in the list
   just switches to it (comparison ignores case, slash style and trailing
@@ -83,10 +84,13 @@ Listed newest first for the current workspace, paginated.
 - Pagination: first / previous / page select / next / last, over
   `messagesPerPage` groups. The page picker is a select, not a number input,
   so JAWS's "next edit field" key goes straight to the prompt.
-  Previous / next are also bound to Alt+Page Up / Alt+Page Down (shown in
-  the button names and `aria-keyshortcuts`). Previous moves the focus to the
-  heading of the last message group of the new page, next to the first one. After a run or when opening a session the view
+  Previous / next are also bound to Alt+Page Up / Alt+Page Down. Previous
+  moves the focus to the heading of the last message group of the new page,
+  next to the first one. After a run or when opening a session the view
   follows the last page; a user reading an earlier page is left alone.
+- Closing any pop-up puts the focus back on the element that had it before the
+  pop-up opened. If that element is gone or disabled by then (e.g. the Send
+  button once a run has started), the focus is left where it is.
 - Per-group menu: copy.
 - Noise hidden, in the rebuilt history and in the live log alike: replies
   whose text is exactly "No response requested." (whichever model wrote them,
@@ -114,6 +118,16 @@ Listed newest first for the current workspace, paginated.
 
 - The prompt field sends with **Ctrl+Enter** or the Send button. While a run is
   in progress the field is read-only, Send is disabled and Abort is enabled.
+- Keyboard shortcuts are written in the button names (e.g. "Send
+  (Ctrl+Enter)", "Next page (Alt+Page Down)") and deliberately not in
+  `aria-keyshortcuts`: its values must be English key names, so JAWS would
+  announce each shortcut a second time, in English.
+- **Send with low effort** sits right after Send (shortcut **Shift+Enter** in
+  the prompt field) and is enabled and disabled with it. It sends exactly like
+  Send, but the run uses the `low` effort. The effort select is not changed,
+  and neither are the run options saved for the session. The override also
+  applies to the silent "continue" retries after a permission grant in that
+  run, and the response heading shows the low effort that was used.
 - **Send to a new branch** sits next to Send and is enabled and disabled
   together with it. It sends the prompt with `--fork-session`: the current
   session stays as it was, and the conversation continues in a copy. The copy

@@ -27,7 +27,8 @@
 
 	"heading.prompt": "Prompt",
 	"label.prompt": "Prompt: ",
-	"button.send": "Send",
+	"button.send": "Send (Ctrl+Enter)",
+	"button.sendLowEffort": "Send with low effort (Shift+Enter)",
 	"button.sendBranch": "Send to a new branch",
 	"session.branchTitle": "From {{title}}",
 	"button.abort": "Abort",
