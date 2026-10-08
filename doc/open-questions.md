@@ -266,9 +266,9 @@ Open:
 ## 7. Workspace list: leftovers
 
 The list now lives in `~/.claude-access/workspaces.json` (see `plan.md`).
-Still browser-side: the run options remembered per session (a fallback only,
-the session file wins) and the "always allowed" tools (deliberately never
-saved). The legacy browser keys are left in place after migration and could be
+Still browser-side: only the "always allowed" tools (deliberately never
+saved); the run options per session moved to the server (2026-10-08, see
+`plan.md`). The legacy browser keys are left in place after migration and could be
 cleaned up later. The migration only runs when the server has no list: opening
 the app first from a browser with empty data creates an empty list.
 

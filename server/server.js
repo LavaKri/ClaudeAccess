@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
-import { listProjects, listHistoryProjects, listSessions, loadSession, setCustomTitle, deleteSession, deleteProject } from './history.js';
+import { listProjects, listHistoryProjects, listSessions, loadSession, setCustomTitle, deleteSession, deleteProject, listSessionIds } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
 import { getWorkspaceStore, saveWorkspaceStore } from './workspaces.js';
+import { getSessionOptions, saveSessionOptions, pruneSessionOptions, deleteSessionOptions, deleteWorkspaceSessionOptions } from './session-options.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -63,6 +64,16 @@ app.put('/api/workspaces', async (req, res) => {
 	res.json(await saveWorkspaceStore(req.body));
 });
 
+// Model / effort / permission mode remembered per session (session-options.js).
+app.get('/api/session-options', async (req, res) => {
+	res.set('Cache-Control', 'no-store');
+	res.json(await getSessionOptions(String(req.query.cwd || process.cwd())));
+});
+
+app.put('/api/session-options/:sessionId', async (req, res) => {
+	res.json(await saveSessionOptions(String(req.query.cwd || process.cwd()), req.params.sessionId, req.body));
+});
+
 // Every history folder on disk, for the "existing workspaces" picker.
 app.get('/api/history-projects', async (req, res) => {
 	let { claudeHomeDir } = await getConfig();
@@ -79,6 +90,7 @@ app.delete('/api/projects', async (req, res) => {
 	let { claudeHomeDir } = await getConfig();
 	try {
 		await deleteProject(cwd, claudeHomeDir);
+		await deleteWorkspaceSessionOptions(cwd);
 	} catch (err) {
 		res.status(500).json({ error: err.message });
 		return;
@@ -89,6 +101,10 @@ app.delete('/api/projects', async (req, res) => {
 app.get('/api/sessions', async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
 	let { claudeHomeDir } = await getConfig();
+	// Listing is the moment to forget the options of sessions that no longer
+	// exist: it happens whenever a workspace is opened or refreshed.
+	let existingIds = await listSessionIds(cwd, claudeHomeDir);
+	if (existingIds) await pruneSessionOptions(cwd, existingIds);
 	res.json(await listSessions(cwd, claudeHomeDir));
 });
 
@@ -119,6 +135,7 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
 	let { claudeHomeDir } = await getConfig();
 	await deleteSession(cwd, req.params.sessionId, claudeHomeDir);
+	await deleteSessionOptions(cwd, req.params.sessionId);
 	res.json({ ok: true });
 });
 

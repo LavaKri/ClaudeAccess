@@ -23,6 +23,23 @@ export async function saveWorkspaceStore (store) {
 	return response.ok;
 }
 
+// Model / effort / permission mode remembered per session of a workspace, as
+// { [sessionId]: { model, effort, permissionMode } } — see
+// server/session-options.js.
+export async function fetchSessionOptions (cwd) {
+	let response = await fetch(`/api/session-options?cwd=${encodeURIComponent(cwd)}`);
+	return response.json();
+}
+
+export async function saveSessionOptions (cwd, sessionId, options) {
+	let response = await fetch(`/api/session-options/${encodeURIComponent(sessionId)}?cwd=${encodeURIComponent(cwd)}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(options),
+	});
+	return response.ok;
+}
+
 export async function fetchHistoryProjects () {
 	let response = await fetch('/api/history-projects');
 	return response.json();

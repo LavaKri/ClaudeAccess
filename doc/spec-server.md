@@ -41,6 +41,21 @@ Global preferences, merged over defaults and sanitised on every read and write
 | `progressAnnounce` | `true` | Progress line announced by the screen reader |
 | `defaultModel`, `defaultEffort`, `defaultPermissionMode` | `sonnet`, `low`, `default` | Used when a session has no recorded options |
 
+### 2.1b `session-options/<workspace>.json` (`server/session-options.js`)
+
+One file per workspace, in a `session-options` folder next to `config.json`
+(named like `claude`'s history folder for that directory, lowercased):
+`{ [sessionId]: { model, effort, permissionMode } }`, the options last chosen
+for each session. Unknown keys are dropped on write; an empty file is deleted.
+Entries are cleaned up:
+- when a session is deleted from the app;
+- when the workspace's history is deleted (the whole file goes);
+- whenever the workspace's sessions are listed (opening the workspace, the
+  Refresh sessions button...): entries whose session file no longer exists on
+  disk are dropped. The check uses the session files really on disk, not the
+  de-duplicated list shown to the user, and is skipped if the history folder
+  can't be read.
+
 ### 2.2 `workspaces.json` (`server/workspaces.js`)
 
 The user's own workspace list, with the state tied to each entry:
@@ -63,6 +78,7 @@ The user's own workspace list, with the state tied to each entry:
 |---|---|
 | `GET /api/config`, `PUT /api/config` | Read / update the configuration |
 | `GET /api/workspaces`, `PUT /api/workspaces` | Read / replace the workspace store |
+| `GET /api/session-options?cwd=`, `PUT /api/session-options/:id?cwd=` | Read a workspace's / replace one session's remembered model, effort and permission mode |
 | `GET /api/projects` | Directories listed in `~/.claude.json` (`projects`) that have a history folder, most recently used first. Used only to migrate the old list |
 | `GET /api/history-projects` | Every history folder on disk, with its real path read from the `cwd` field of its session files (the folder name cannot be decoded). For the "existing workspaces" picker; folders whose path can't be recovered are left out |
 | `DELETE /api/projects?cwd=` | Deletes a workspace's whole history and its `~/.claude.json` entry |

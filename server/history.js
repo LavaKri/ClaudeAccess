@@ -340,6 +340,17 @@ export async function listSessions (cwd, homeDir) {
 	return unique.map(withTitle);
 }
 
+// Ids of the session files really on disk for a directory, or null when the
+// folder can't be read (so a caller never mistakes "unreadable" for "empty").
+export async function listSessionIds (cwd, homeDir) {
+	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
+	try {
+		return (await fs.readdir(dir)).filter(f => f.endsWith('.jsonl')).map(f => f.slice(0, -'.jsonl'.length));
+	} catch {
+		return null;
+	}
+}
+
 export async function loadSession (cwd, sessionId, homeDir) {
 	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
 	let session = await readSessionFile(path.join(dir, `${sessionId}.jsonl`), cwd);

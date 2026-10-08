@@ -34,7 +34,8 @@ order entries were added, paginated with Newer / Older buttons.
 
 - Choosing a workspace makes it current and opens the session it was
   last on (the most recent one if that is unknown or gone); with no sessions
-  the conversation stays empty.
+  the conversation stays empty. The model, effort and permission
+  mode are those of the opened session (section 8).
 - **Add a workspace…**: dialog with a path field and a native folder picker
   (a picked folder validates the dialog at once). A path already in the list
   just switches to it (comparison ignores case, slash style and trailing
@@ -258,8 +259,13 @@ is not reduced: only scoped rules could do that (see `open-questions.md`).
   permission mode (`default`, `acceptEdits`, `plan`, `auto`, `dontAsk`,
   `bypassPermissions`), applied to every prompt including the hidden resumes.
 - Defaults for new sessions come from the options page.
-- This browser remembers the options per session and the last ones used, as a
-  fallback only.
+- The options are remembered per session, on the server (so any browser
+  reopens a session the same way). They are saved as soon as a select changes,
+  or, for a session without an id yet, when the CLI reports it.
+- Opening a session applies, in order of priority: what was remembered for it,
+  what its file says it was last run with, the defaults. A new session starts
+  with the defaults. Changing workspace opens that workspace's last session, so
+  it brings back that session's options.
 
 ## 9. Options page
 
@@ -278,6 +284,6 @@ set), two sounds: completion and "a question is waiting".
 
 ## 11. What stays in the browser
 
-Only the run options remembered per session and last used (fallback), and the
-legacy workspace keys left after migration. The workspace list, custom names
-and last workspace/session live on the server.
+Only the legacy workspace keys left after migration. The workspace list,
+custom names, last workspace/session and the run options per session live on
+the server.

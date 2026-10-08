@@ -5,7 +5,7 @@ import { fetchConfig } from './ConfigClient.js';
 import { MODELS, EFFORTS, PERMISSION_MODES, toolStateInMode, populateSelect } from './runOptions.js';
 import { connect, send } from './WsClient.js';
 import {
-	fetchProjects, fetchHistoryProjects, fetchWorkspaceStore, saveWorkspaceStore, fetchSessions, fetchSession,
+	fetchProjects, fetchHistoryProjects, fetchWorkspaceStore, saveWorkspaceStore, fetchSessionOptions, saveSessionOptions, fetchSessions, fetchSession,
 	renameSession as renameSessionRequest,
 	deleteSession as deleteSessionRequest,
 	deleteProject as deleteProjectRequest,
@@ -24,8 +24,6 @@ const LAST_SESSION_KEY = 'claudeAccessible.lastSessionId';
 const WORKSPACE_NAMES_KEY = 'claudeAccessible.workspaceNames';
 const HIDDEN_WORKSPACES_KEY = 'claudeAccessible.hiddenWorkspaces';
 const EXTRA_WORKSPACES_KEY = 'claudeAccessible.extraWorkspaces';
-const RUN_OPTIONS_PREFIX = 'claudeAccessible.runOptions.';
-const LAST_RUN_OPTIONS_KEY = 'claudeAccessible.lastRunOptions';
 
 // Set from config.completionSound in onWindowLoad — governs both sounds
 // below, no separate toggle per sound.
@@ -147,22 +145,24 @@ function updatePermissionChanges () {
 	line.hidden = !beyond.length;
 }
 
-// Remembers model/effort/permission-mode per session (so reopening a session
-// restores what was last used there), and also as a standalone "last used"
-// fallback for brand new sessions — `claude` itself has no notion of a
-// per-session default to inherit instead.
+// Model/effort/permission-mode remembered per session, on the server (so any
+// browser reopens a session the same way). Those of the current workspace are
+// loaded with its session list (see loadSessionList), then kept in step with
+// every change made to the selects.
+let sessionRunOptions = {};
+// Config defaults, applied to a brand new session.
+let defaultRunOptions = {};
+
 function saveRunOptionsForSession (sessionId, options) {
-	if (sessionId) localStorage.setItem(RUN_OPTIONS_PREFIX + sessionId, JSON.stringify(options));
-	localStorage.setItem(LAST_RUN_OPTIONS_KEY, JSON.stringify(options));
+	if (!sessionId) return;
+	sessionRunOptions[sessionId] = options;
+	saveSessionOptions(currentCwd, sessionId, options);
 }
 
-function loadRunOptionsForSession (sessionId) {
-	try {
-		let raw = sessionId ? localStorage.getItem(RUN_OPTIONS_PREFIX + sessionId) : localStorage.getItem(LAST_RUN_OPTIONS_KEY);
-		return raw ? JSON.parse(raw) : null;
-	} catch {
-		return null;
-	}
+// Saves the selects' current values for the open session; a session that has no
+// id yet is saved once the CLI reports it (see onServerMessage).
+function rememberRunOptions () {
+	saveRunOptionsForSession(currentSessionId, getRunOptions());
 }
 
 // Overridden from config (titlePreviewWordCount) once it's fetched in
@@ -944,7 +944,7 @@ function onServerMessage (message) {
 	if (message.session_id) {
 		currentSessionId = message.session_id;
 		rememberLastSession(currentSessionId);
-		saveRunOptionsForSession(currentSessionId, getRunOptions());
+		if (!sessionRunOptions[currentSessionId]) rememberRunOptions();
 		renderSessionOptions();
 	}
 
@@ -1084,7 +1084,7 @@ function startNewSession () {
 	setSessionTitle(defaultTitle());
 	rememberLastSession(null);
 	updateSessionAriaCurrent();
-	applyRunOptions(loadRunOptionsForSession(null));
+	applyRunOptions(defaultRunOptions);
 	renderSessionOptions();
 	resetTokenUsage();
 }
@@ -1135,12 +1135,13 @@ async function resumeSession (sessionId) {
 	renderMessages();
 	rememberLastSession(sessionId);
 	updateSessionAriaCurrent();
-	// What the session file says it was last run with wins (so any browser
-	// reopens it the same way); this browser's own memory fills in what the
-	// file doesn't have, then the defaults.
+	// What was last chosen for this session (stored on the server); a session
+	// that has none yet falls back to what its file says it was last run with,
+	// then to the defaults.
 	applyRunOptions({
-		...(loadRunOptionsForSession(sessionId) || loadRunOptionsForSession(null)),
+		...defaultRunOptions,
 		...runOptionsFromSession(session.runOptions),
+		...sessionRunOptions[sessionId],
 	});
 	renderSessionOptions();
 	resetTokenUsage(session.tokenUsage);
@@ -1258,7 +1259,10 @@ function goToSessionsPage (page) {
 }
 
 async function loadSessionList () {
+	// Listing makes the server forget the options of vanished sessions, so the
+	// options are fetched after it.
 	allSessions = await fetchSessions(currentCwd);
+	sessionRunOptions = await fetchSessionOptions(currentCwd);
 	sessionsPage = 0;
 	renderSessionPage();
 }
@@ -1669,10 +1673,14 @@ async function onWindowLoad () {
 	populateSelect(document.getElementById('modelSelect'), MODELS, 'option.model', config.defaultModel);
 	populateSelect(document.getElementById('effortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
 	populateSelect(document.getElementById('permissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
+	defaultRunOptions = getRunOptions();
 	document.getElementById('permissionModeSelect').addEventListener('change', () => {
 		updatePermissionModeDescription();
 		resetAllowedTools();
 	});
+	for (let id of ['modelSelect', 'effortSelect', 'permissionModeSelect']) {
+		document.getElementById(id).addEventListener('change', rememberRunOptions);
+	}
 	updatePermissionModeDescription();
 
 	connect(onServerMessage);
