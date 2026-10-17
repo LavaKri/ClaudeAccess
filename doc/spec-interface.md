@@ -210,7 +210,12 @@ live behaviour is driven by `aria-live` on the div.
 
 ## 7. Tool permissions
 
-The CLI cannot pause for approval in `-p` mode, so the interface handles it.
+Two methods, chosen on the options page (see `claude-p-usage.md`): **A**,
+"Stop Claude, then resume it after the answer" (the CLI cannot pause for
+approval in `-p` mode, so the interface cuts it and resumes it), and **B**,
+"Make Claude wait for the answer" (a hook makes the CLI wait for the popup's
+answer). Both use the same popup; what follows is method A unless said
+otherwise, and method B is described at the end of this section.
 
 **What counts as a permission request**
 - The CLI's own marker: right before the error `tool_result` of every denied
@@ -282,6 +287,27 @@ the current session only, and never saved. Rule shapes were checked against
 the real CLI (see `claude-p-usage.md` 4.A): an absolute Windows path is written
 `//c/Users/...`.
 
+**Method B.** The request arrives from the server (`permission_request`)
+while the CLI waits, and opens the same popup (same lines, buttons, sound,
+"Show the permission request" button). Each button picks its path when
+clicked:
+- **Allow once** lets this one call through, with no rule kept. **Always
+  allow…** also hands the rule to the waiting CLI for the rest of the run and
+  keeps it for the next messages, as with method A. No cut, no hidden
+  "continue", no "No response requested." filler.
+- **Deny** and **Deny and explain…**: the second one replaces the question by
+  a text field ("What Claude should do instead"); cancelling it brings the
+  question back. The text goes with the denial and Claude reads it. The CLI's
+  `permission_denied` that follows (`decision_reason_type: "hook"`) is
+  ignored. In method A, the explanation becomes the next prompt instead.
+- **Abort** while a request waits: the server denies it and stops the CLI.
+- **Time to answer over** (`permission_request_expired`): the status area
+  says so ("Time to answer is over: Claude got a denial and has been stopped.
+  Your answer will resume it."), the page cuts the CLI as method A does, and
+  the popup stays: answering it now resumes the session the method A way.
+- In `dontAsk` mode the hook is never called: denials keep method A's
+  handling.
+
 **Mode states and the "always allowed" list**: each permission mode has a
 known state for the main tools (`MODE_TOOL_STATES` in `front/runOptions.js`):
 
@@ -328,8 +354,7 @@ sessions per page, title preview word count, completion sound, announce
 progress, show hidden messages), permission requests (how they are handled:
 "Stop Claude, then resume it after the answer" (method A) or "Make Claude wait
 for the answer" (method B); time to answer, 1 to 20 minutes, 6 by default,
-disabled unless method B is chosen; stored only, method B is not implemented
-yet), defaults for new sessions (model, effort, permission mode),
+disabled unless method B is chosen), defaults for new sessions (model, effort, permission mode),
 advanced (listen host and port, CLI command, Claude home directory). Theme
 changes preview immediately; Save writes the configuration, Reset returns to
 the last saved values.

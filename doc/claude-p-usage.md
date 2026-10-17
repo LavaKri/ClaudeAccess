@@ -154,6 +154,10 @@ the resume unnecessary anyway.
 
 ### B. `PermissionRequest` hook of type `http`
 
+**Done (2026-10-17)** as the "Make Claude wait for the answer" option, with
+"Deny and explain": see `spec-server.md` 5 and `spec-interface.md` 7.
+Method A stays as the fallback (`dontAsk` mode, expired requests).
+
 **How it works.** Each spawn gets `--settings` with a `PermissionRequest` hook
 pointing at a ClaudeAccess route, e.g.
 `{"hooks":{"PermissionRequest":[{"hooks":[{"type":"http","url":"http://localhost:1080/hook/permission/<runId>","timeout":3600}]}]}}`.

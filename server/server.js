@@ -9,6 +9,7 @@ import { listProjects, listHistoryProjects, listSessions, loadSession, setCustom
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
 import { getWorkspaceStore, saveWorkspaceStore, isKnownWorkspace } from './workspaces.js';
 import { getPowerShellToolDisabled, setPowerShellToolDisabled } from './project-settings.js';
+import { registerRun, hookSettings, closeRun, handleHookRequest, answerRequest } from './permission-hook.js';
 import { getSessionOptions, saveSessionOptions, pruneSessionOptions, deleteSessionOptions, deleteWorkspaceSessionOptions } from './session-options.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -64,6 +65,9 @@ app.get('/api/workspaces', async (req, res) => {
 app.put('/api/workspaces', async (req, res) => {
 	res.json(await saveWorkspaceStore(req.body));
 });
+
+// The CLI's PermissionRequest hook calls (method B, see permission-hook.js).
+app.post('/hook/permission/:runId', handleHookRequest);
 
 // Subscription usage last reported by the CLI (rate_limit_event, sent with
 // every run), kept in memory so a freshly loaded page can show it right away.
@@ -291,7 +295,7 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 
 	if (connectionState.activeChild) await waitForExit(connectionState.activeChild);
 
-	let { cliCommand } = await getConfig();
+	let { cliCommand, permissionMethod, permissionTimeoutMinutes } = await getConfig();
 	let [command, ...baseArgs] = parseCliCommand(useMockCli ? MOCK_CLI_COMMAND : cliCommand);
 	if (!command) {
 		connectionState.starting = false;
@@ -324,6 +328,15 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	// New branch: the CLI copies the session's history under a new session id and
 	// leaves the original untouched. Meaningless without a session to resume.
 	if (sessionId && fork) args.push('--fork-session');
+	// Method B: the CLI asks this server through a hook and waits for the
+	// page's answer. Never called in dontAsk mode, which denies without asking:
+	// that mode keeps method A's handling.
+	let runId = null;
+	if (permissionMethod === 'hook' && permissionMode !== 'dontAsk') {
+		runId = registerRun(payload => send(ws, payload));
+		args.push('--settings', hookSettings(runId, config.host, config.port, permissionTimeoutMinutes));
+	}
+	connectionState.runId = runId;
 	let rules = (Array.isArray(allowedTools) ? allowedTools : []).filter(rule => typeof rule === 'string' && rule);
 	if (rules.length) args.push('--allowed-tools', ...rules);
 
@@ -364,11 +377,13 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	// Only clear the slot if it still holds this child: a finished child can exit
 	// after the next run has already taken its place.
 	child.on('error', err => {
+		closeRun(runId);
 		if (connectionState.activeChild === child) connectionState.activeChild = null;
 		send(ws, { type: 'error', message: `Failed to start claude process: ${err.message}` });
 	});
 
 	child.on('exit', () => {
+		closeRun(runId);
 		if (connectionState.activeChild === child) connectionState.activeChild = null;
 	});
 }
@@ -385,6 +400,7 @@ function abortPrompt (ws, connectionState) {
 		send(ws, { type: 'error', message: 'No prompt is currently running on this connection' });
 		return;
 	}
+	closeRun(connectionState.runId, { interrupt: true });
 	connectionState.activeChild.kill();
 	connectionState.activeChild = null;
 	send(ws, { type: 'result', subtype: 'aborted' });
@@ -410,12 +426,17 @@ wss.on('connection', ws => {
 			runPrompt(ws, connectionState, request);
 		} else if (request.type === 'abort') {
 			abortPrompt(ws, connectionState);
+		} else if (request.type === 'permission_response') {
+			// An answer arriving after the CLI gave up (timeout) is simply dropped:
+			// the page has been told the request expired.
+			answerRequest(connectionState.runId, request);
 		} else {
 			send(ws, { type: 'error', message: `Unknown message type: ${request.type}` });
 		}
 	});
 
 	ws.on('close', () => {
+		closeRun(connectionState.runId);
 		connectionState.activeChild?.kill();
 	});
 });

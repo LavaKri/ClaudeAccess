@@ -151,6 +151,10 @@
 	"permission.rule.workspace": "edits anywhere in the workspace",
 	"permission.rule.tool": "the whole {{tool}} tool",
 	"button.deny": "Deny",
+	"button.denyExplain": "Deny and explain…",
+	"dialog.denyExplainTitle": "Deny and explain",
+	"dialog.denyExplainLabel": "What Claude should do instead:",
+	"status.permissionExpired": "Time to answer is over: Claude got a denial and has been stopped. Your answer will resume it.",
 
 	"tokenUsage.turn": "This turn: {{input}} input tokens, {{output}} output tokens, {{cacheCreation}} cache-write tokens, {{cacheRead}} cache-read tokens. ",
 	"tokenUsage.total": "Session total: {{input}} input tokens, {{output}} output tokens, {{cacheCreation}} cache-write tokens, {{cacheRead}} cache-read tokens.",

@@ -40,7 +40,7 @@ Global preferences, merged over defaults and sanitised on every read and write
 | `completionSound` | `true` | Sound at the end of a response |
 | `progressAnnounce` | `true` | Progress line announced by the screen reader |
 | `showHiddenMessages` | `false` | Show the messages hidden as noise (section 4) |
-| `permissionMethod` | `resume` | `resume` (method A: the CLI denies, the app resumes with the tool allowed) or `hook` (method B: the CLI waits for the answer). Stored only so far: the hook itself is not implemented yet |
+| `permissionMethod` | `resume` | `resume` (method A: the CLI denies, the app resumes with the tool allowed) or `hook` (method B: the CLI waits for the answer, see section 5) |
 | `permissionTimeoutMinutes` | `6` | Time to answer with `hook`, 1 to 20 minutes |
 | `defaultModel`, `defaultEffort`, `defaultPermissionMode` | `sonnet`, `low`, `default` | Used when a session has no recorded options |
 
@@ -130,11 +130,14 @@ Client to server (JSON):
 - `prompt`: `{ prompt, model, effort, permissionMode, cwd, sessionId?,
   fork?, allowedTools? }`
 - `abort`
+- `permission_response`: `{ requestId, allow, rules?, message? }` (method B)
 
 Server to client: every stdout line of the CLI is forwarded verbatim
 (`stream-json`), plus `{ type: 'error', message }` for stderr, spawn failures
-and protocol errors, and `{ type: 'result', subtype: 'aborted' }` after an
-abort.
+and protocol errors, `{ type: 'result', subtype: 'aborted' }` after an
+abort, and for method B `{ type: 'permission_request', requestId, tool_name,
+tool_input, permission_suggestions }` and `{ type:
+'permission_request_expired', requestId }`.
 
 Shape of a real stream (captured on 2026-10-06, `haiku`, `-p` with
 `stream-json`): `system/init` (with `permissionMode`, `model`, `session_id`…),
@@ -160,8 +163,9 @@ Invocation: `<cliCommand> -p <prompt> --output-format stream-json --verbose
 there is one, `--fork-session` when `fork` is true and a session is given (the
 CLI then continues under a new session id and leaves the original untouched),
 and `--allowed-tools <rule> <rule>…`, one rule per argument (kept last, it
-is variadic; a rule such as `Bash(node -e "a, b")` can contain a comma). No shell
-is involved, stdin is ignored, the working directory is the workspace.
+is variadic; a rule such as `Bash(node -e "a, b")` can contain a comma). With
+method B, `--settings` comes right before it. No shell is involved, stdin is
+ignored, the working directory is the workspace.
 
 - One CLI child per WebSocket connection; a second `prompt` while a turn is in
   progress is refused. A child that has already delivered its `result` no
@@ -169,10 +173,29 @@ is involved, stdin is ignored, the working directory is the workspace.
   prompt arriving then waits for that child to exit (killed after 2 seconds)
   before the next one starts.
 - `abort` kills the child, or cancels a run that is still starting.
-- In `-p` mode the CLI cannot pause for a permission: a tool that isn't
-  allowed comes back as an error and the front end decides what to do (it
-  resumes with `--resume` and a rule added to `--allowed-tools`). See the
-  permission section of the interface spec.
+- **Method A** (`permissionMethod: 'resume'`): in `-p` mode the CLI cannot
+  pause for a permission. A tool that isn't allowed comes back as an error and
+  the front end decides what to do (it resumes with `--resume` and a rule
+  added to `--allowed-tools`). See the permission section of the interface
+  spec.
+- **Method B** (`permissionMethod: 'hook'`, `server/permission-hook.js`):
+  each run, except in `dontAsk` mode (where the hook is never called), gets a
+  random `runId` and `--settings` with a `PermissionRequest` hook of type
+  `http` pointing at `POST /hook/permission/<runId>` on this server (loopback
+  when listening on every interface), with `timeout` = `permissionTimeoutMinutes`
+  × 60. The CLI POSTs the request and waits; the route keeps the HTTP
+  request open and sends `permission_request` to the page that started the
+  run. The page's `permission_response` (only accepted from that connection)
+  becomes the hook's answer: `allow`, with `updatedPermissions` (`addRules`,
+  destination `session`) for an "always" rule, or `deny` with the user's
+  `message`. The CLI closing the request first (its timeout) sends
+  `permission_request_expired`. An unknown `runId` gets an empty answer
+  (no decision, hence a denial). When the run ends, is aborted (with
+  `interrupt`) or its WebSocket closes, whatever it still waits for is
+  denied, so the CLI never hangs. Checked end to end through this server on
+  2026-10-17, with the mock (allow, always, deny with message, abort, page
+  closed, expiry) and the real CLI with `haiku` (allow, always, deny with
+  message: the model obeyed it).
 
 ### Tool error log
 

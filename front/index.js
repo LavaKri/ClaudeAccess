@@ -62,7 +62,13 @@ let currentSessionTitle = '';
 
 // Set while a tool-permission prompt is shown, so the "aborted" result that
 // follows our own abort() call doesn't reset the UI out from under it.
-let awaitingToolPermission = null; // { toolName, toolUseId }
+// hookRequestId is set while the CLI waits for the answer (method B, see
+// answerHookRequest); null when the CLI has been cut (method A, or a method B
+// request that expired) and the answer resumes it instead.
+let awaitingToolPermission = null; // { toolName, toolUseId, hookRequestId }
+// True while "Deny and explain" has replaced the question by its text field, so
+// closing that field isn't taken for a lost question (onQuestionDialogClose).
+let explainingDenial = false;
 
 let currentCwd = '';
 let currentSessionId = null;
@@ -666,6 +672,7 @@ let lastQuestion = null;
 // answer with nothing to answer it, so a "Show the permission request" button
 // appears next to Abort and takes the focus.
 function onQuestionDialogClose () {
+	if (explainingDenial) return;
 	let button = document.getElementById('showQuestionButton');
 	let lost = Boolean(awaitingToolPermission) && Boolean(lastQuestion);
 	button.hidden = !lost;
@@ -796,12 +803,14 @@ function showConfirmDialog (title, message) {
 }
 
 // Permission requests are a closed question (allow-once / always-allow / deny):
-// only the option buttons answer, the prompt field stays unavailable. There's
-// no live pause on the CLI side — see doc/plan.md: an unauthorized tool just comes
-// back denied, and "allowing" it means starting a new --resume run with the
-// tool added to --allowed-tools.
-function showToolPermissionRequest (toolName, toolInput, toolUseId, errorText) {
-	awaitingToolPermission = { toolName, toolUseId };
+// only the option buttons answer, the prompt field stays unavailable. Two ways
+// to get here (doc/claude-p-usage.md): method A, the CLI denied and has been
+// cut, so "allowing" starts a new --resume run with the rule added to
+// --allowed-tools; method B (hookRequestId), the CLI waits for the answer,
+// sent back through the server. Each button picks its path when clicked: a
+// method B request that expires meanwhile falls back to method A.
+function showToolPermissionRequest (toolName, toolInput, toolUseId, errorText, hookRequestId = null) {
+	awaitingToolPermission = { toolName, toolUseId, hookRequestId };
 
 	// Line 1: the request; line 2: the tool's parameter, if any; then the
 	// external-file warning and the CLI's error text.
@@ -814,22 +823,85 @@ function showToolPermissionRequest (toolName, toolInput, toolUseId, errorText) {
 	// "Always" is offered scoped first (these commands, this folder), then for
 	// the whole tool; "once" only covers the exact denied action.
 	let choices = buildPermissionChoices(toolName, toolInput, errorText);
-	let options = [{ label: t('button.allowOnce'), onClick: () => resumeWithToolAllowed(choices.once, null) }];
+	let options = [{ label: t('button.allowOnce'), onClick: () => grantToolPermission(choices.once, null) }];
 	if (choices.scoped) {
 		let scoped = scopedRuleEntry(toolName, choices.scoped);
-		options.push({ label: t('button.alwaysAllowScope', { scope: scoped.label }), onClick: () => resumeWithToolAllowed(choices.once, scoped) });
+		options.push({ label: t('button.alwaysAllowScope', { scope: scoped.label }), onClick: () => grantToolPermission(choices.once, scoped) });
 	}
 	options.push({
 		label: t('button.alwaysAllowTool', { tool }),
-		onClick: () => resumeWithToolAllowed(choices.once, { rule: choices.whole, tool: toolName, label: t('permission.rule.tool', { tool }), insideWorkspace: false }),
+		onClick: () => grantToolPermission(choices.once, { rule: choices.whole, tool: toolName, label: t('permission.rule.tool', { tool }), insideWorkspace: false }),
 	});
-	options.push({ label: t('button.deny'), onClick: denyToolPermission });
+	options.push({ label: t('button.deny'), onClick: () => refuseToolPermission(null) });
+	options.push({ label: t('button.denyExplain'), onClick: denyWithExplanation });
 
 	renderQuestion(t('tool.request.tool', { tool }), options, extraLines);
 	playSound('ask.mp3');
 
 	setWorking(true);
 	setProgress(t('progress.awaitingPermission'));
+}
+
+function grantToolPermission (onceRule, alwaysEntry) {
+	if (awaitingToolPermission?.hookRequestId) answerHookRequest(true, alwaysEntry);
+	else resumeWithToolAllowed(onceRule, alwaysEntry);
+}
+
+// explanation (null for a plain denial) tells Claude what to do instead.
+// Method B sends it with the denial, and the waiting CLI goes on with it.
+// Method A has no CLI left to tell: the explanation becomes the next prompt.
+function refuseToolPermission (explanation) {
+	if (awaitingToolPermission?.hookRequestId) {
+		answerHookRequest(false, null, explanation);
+		return;
+	}
+	denyToolPermission();
+	if (explanation) {
+		document.getElementById('prompt').value = explanation;
+		document.getElementById('promptForm').requestSubmit(document.getElementById('sendButton'));
+	}
+}
+
+// "Deny and explain": the question gives way to a text field; cancelling it
+// brings the same question back.
+async function denyWithExplanation () {
+	explainingDenial = true;
+	let text = await showInputDialog(t('dialog.denyExplainTitle'), t('dialog.denyExplainLabel'));
+	explainingDenial = false;
+	if (!awaitingToolPermission) return;
+	if (text?.trim()) refuseToolPermission(text.trim());
+	else showQuestionAgain();
+}
+
+// Method B: the CLI is waiting, so the answer goes straight back to it. "Allow
+// once" only lets this one call through; an "always" rule is also given to the
+// running CLI (for the rest of this run) and kept for the next messages, as
+// with method A.
+function answerHookRequest (allow, alwaysEntry, explanation = null) {
+	let { hookRequestId } = awaitingToolPermission;
+	awaitingToolPermission = null;
+	if (alwaysEntry && !alwaysRules.some(entry => entry.rule === alwaysEntry.rule)) {
+		alwaysRules = [...alwaysRules, alwaysEntry];
+		updatePermissionChanges();
+	}
+	hideQuestion();
+	setWorking(true);
+	setStatus('');
+	send({
+		type: 'permission_response', requestId: hookRequestId, allow,
+		rules: allow && alwaysEntry ? [alwaysEntry.rule] : [],
+		message: explanation,
+	});
+}
+
+// Method B request the CLI stopped waiting for (its timeout): it has denied
+// the tool and carries on. Cut it, as method A does at a denial, and keep the
+// question: answering it now resumes the session the method A way.
+function onHookRequestExpired (message) {
+	if (awaitingToolPermission?.hookRequestId !== message.requestId) return;
+	awaitingToolPermission.hookRequestId = null;
+	send({ type: 'abort' });
+	setStatus(t('status.permissionExpired'));
 }
 
 function denyToolPermission () {
@@ -950,6 +1022,8 @@ function isAlreadyGranted (toolName, toolInput, denialMessage) {
 // Returns true if the message was a denial and has been dealt with.
 function handleIfPermissionDenied (message) {
 	if (message.type !== 'system' || message.subtype !== 'permission_denied') return false;
+	// The user's own "Deny" through the method B hook: already answered.
+	if (message.decision_reason_type === 'hook') return true;
 	// A question is already open (several denials in the same step): the first
 	// one is the one asked about.
 	if (awaitingToolPermission) return true;
@@ -1054,6 +1128,14 @@ function renderUsage (info) {
 function onServerMessage (message) {
 	if (message.type === 'rate_limit_event') {
 		renderUsage(message.rate_limit_info);
+		return;
+	}
+	if (message.type === 'permission_request') {
+		showToolPermissionRequest(message.tool_name, message.tool_input, null, null, message.requestId);
+		return;
+	}
+	if (message.type === 'permission_request_expired') {
+		onHookRequestExpired(message);
 		return;
 	}
 	if (message.session_id) {
@@ -1179,6 +1261,14 @@ async function nameBranch () {
 // also clears the pending state — otherwise the page would keep ignoring the
 // next runs' messages as leftovers of the cut CLI.
 async function onAbortClick () {
+	// Method B: the CLI is still running, waiting for the answer. The server
+	// denies the request and stops the CLI; its "aborted" result resets the view.
+	if (awaitingToolPermission?.hookRequestId) {
+		awaitingToolPermission = null;
+		hideQuestion();
+		await send({ type: 'abort' });
+		return;
+	}
 	if (awaitingToolPermission) {
 		denyToolPermission();
 		return;

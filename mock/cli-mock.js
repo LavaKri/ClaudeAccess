@@ -31,6 +31,7 @@ function parseArgs (argv) {
 		else if (arg === '--permission-mode') args.permissionMode = argv[++i] ?? args.permissionMode;
 		else if (arg === '--resume') args.resume = argv[++i] ?? '';
 		else if (arg === '--fork-session') args.fork = true;
+		else if (arg === '--settings') permissionHook = readPermissionHook(argv[++i] ?? '');
 		// Variadic, like the real option: every following argument up to the next
 		// option is a rule (the server passes one rule per argument).
 		else if (arg === '--allowed-tools' || arg === '--allowedTools') {
@@ -69,6 +70,40 @@ const TOOL_INPUT = { command: 'git commit -am "wip"' };
 // has been denied because Claude Code is running in don't ask mode…".
 const DENIAL_TEXT = 'This command requires approval';
 
+// The PermissionRequest hook of --settings, as ClaudeAccess passes it for
+// method B ({ url, timeout } in seconds), or null.
+let permissionHook = null;
+
+function readPermissionHook (settings) {
+	try {
+		let hook = JSON.parse(settings).hooks?.PermissionRequest?.[0]?.hooks?.[0];
+		return hook?.type === 'http' && hook.url ? { url: hook.url, timeout: hook.timeout ?? 600 } : null;
+	} catch {
+		return null;
+	}
+}
+
+// Like the real CLI: POSTs the request and waits for the decision; no answer
+// within the timeout, or a failed call, is no decision (a denial).
+async function askPermissionHook () {
+	try {
+		let response = await fetch(permissionHook.url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				hook_event_name: 'PermissionRequest',
+				tool_name: TOOL_NAME,
+				tool_input: TOOL_INPUT,
+				permission_suggestions: [{ type: 'addRules', rules: [{ toolName: TOOL_NAME, ruleContent: TOOL_INPUT.command }], behavior: 'allow', destination: 'localSettings' }],
+			}),
+			signal: AbortSignal.timeout(permissionHook.timeout * 1000),
+		});
+		return (await response.json())?.hookSpecificOutput?.decision ?? null;
+	} catch {
+		return null;
+	}
+}
+
 // Simulates Claude attempting a tool call: emits the `assistant` message with
 // the tool_use block, then a `user` message with the tool_result — shapes
 // confirmed for real from an earlier capture (see doc/plan.md), unlike the rest
@@ -95,16 +130,29 @@ async function attemptTool (sessionId, messageId, model, allowedTools) {
 	let allowed = allowedTools.some(rule => rule === TOOL_NAME
 		|| rule === `${TOOL_NAME}(${TOOL_INPUT.command})`
 		|| rule === `${TOOL_NAME}(${firstWord} *)`);
+	let denialText = DENIAL_TEXT;
+	let deniedByHook = false;
+	if (!allowed && permissionHook) {
+		let decision = await askPermissionHook();
+		if (decision?.behavior === 'allow') {
+			allowed = true;
+		} else if (decision?.behavior === 'deny') {
+			deniedByHook = true;
+			denialText = decision.message || DENIAL_TEXT;
+		}
+	}
 	if (!allowed) {
 		// The real CLI announces every denial with a dedicated system message right
 		// before the (error) tool_result, then lists it in the result's
-		// permission_denials — both confirmed on a real run (see doc/plan.md).
+		// permission_denials — both confirmed on a real run (see doc/plan.md). A
+		// denial the hook decided carries decision_reason_type "hook".
 		await emit({
 			type: 'system',
 			subtype: 'permission_denied',
 			tool_name: TOOL_NAME,
 			tool_use_id: toolId,
-			message: DENIAL_TEXT,
+			message: denialText,
+			...(deniedByHook && { decision_reason_type: 'hook' }),
 			session_id: sessionId,
 		});
 	}
@@ -116,7 +164,7 @@ async function attemptTool (sessionId, messageId, model, allowedTools) {
 			content: [{
 				type: 'tool_result',
 				tool_use_id: toolId,
-				content: allowed ? 'wip\n 1 file changed, 1 insertion(+)' : DENIAL_TEXT,
+				content: allowed ? 'wip\n 1 file changed, 1 insertion(+)' : denialText,
 				is_error: !allowed,
 			}],
 		},
