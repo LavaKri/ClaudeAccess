@@ -243,7 +243,11 @@ separator); a last line with the raw CLI error text. Buttons, built in
 - **Deny**.
 
 All lines are also mirrored into the live status area and focus goes to the
-first button. Escape does not close it.
+first button. Escape does not close it. Pop-up buttons each sit on their own
+line, so the screen reader's own arrow keys (browse mode, line by line) reach
+every one of them; until 2026-10-17 they shared lines and only the first
+button of each line could be reached that way, the others by Tab only. The
+page itself does not handle the arrow keys.
 
 **Lost popup.** The browser still closes a modal dialog by itself after
 repeated Escape presses, and until 2026-10-17 an Escape could also run the
