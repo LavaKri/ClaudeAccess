@@ -87,6 +87,7 @@ The user's own workspace list, with the state tied to each entry:
 | `GET /api/sessions/:id?cwd=` | One session: title, messages, token usage, last run options |
 | `PUT /api/sessions/:id/title` | Renames (appends a `custom-title` line, like `claude` does) |
 | `DELETE /api/sessions/:id` | Deletes the session file |
+| `GET /api/powershell-tool?cwd=`, `PUT /api/powershell-tool?cwd=` (`{ disabled }`) | Read / set `env.CLAUDE_CODE_USE_POWERSHELL_TOOL = "0"` in the workspace's versioned `.claude/settings.json` (`server/project-settings.js`). Only for a workspace of the user's list (400 otherwise). The rest of the file is kept; an `env` block or a file left empty is removed; a file that isn't a JSON object is never overwritten (409). The file is rewritten with 2-space indentation |
 | `POST /api/pick-folder?lang=` | Opens the native Windows folder dialog on the server machine (PowerShell) and returns the chosen path or `null` |
 
 List responses are sent `no-store` where a stale cache would show deleted

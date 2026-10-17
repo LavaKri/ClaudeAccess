@@ -44,6 +44,11 @@ export async function getWorkspaceStore () {
 	return { exists: true, ...sanitize(raw) };
 }
 
+export async function isKnownWorkspace (workspacePath) {
+	let key = normalizePath(workspacePath);
+	return (await getWorkspaceStore()).workspaces.some(entry => normalizePath(entry.path) === key);
+}
+
 export async function saveWorkspaceStore (data) {
 	let clean = sanitize(data);
 	await fs.mkdir(CONFIG_DIR, { recursive: true });

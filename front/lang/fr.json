@@ -192,5 +192,14 @@
 	"button.back": "Retour",
 	"status.optionsSaved": "Options enregistrées.",
 	"status.optionsSaveFailed": "Échec de l'enregistrement des options.",
-	"status.optionsReset": "Formulaire réinitialisé."
+	"status.optionsReset": "Formulaire réinitialisé.",
+
+	"heading.workspaceSettings": "Espace de travail courant",
+	"workspaceSettings.none": "Aucun espace de travail courant : ouvrez-en un dans l'application.",
+	"workspaceSettings.readFailed": "Impossible de lire les réglages de l'espace de travail : {{error}}",
+	"workspaceSettings.writeFailed": "Échec de la modification des réglages de l'espace de travail : {{error}}",
+	"button.disablePowerShellTool": "Désactiver l'outil PowerShell de Claude dans cet espace de travail",
+	"button.enablePowerShellTool": "Réactiver l'outil PowerShell de Claude dans cet espace de travail",
+	"status.powerShellToolDisabled": "Outil PowerShell désactivé pour cet espace de travail, à partir du prochain message.",
+	"status.powerShellToolEnabled": "Outil PowerShell réactivé pour cet espace de travail, à partir du prochain message."
 }

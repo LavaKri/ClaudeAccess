@@ -231,8 +231,9 @@ when outside it; a command; a search pattern; a URL…); a warning line when the
 file is outside the workspace (the path starts with a drive letter or
 separator); a last line with the raw CLI error text. Buttons, built in
 `front/permissionRules.js`:
-- **Allow once**: a rule for exactly this action, `Bash(<command>)` or
-  `Edit(<file>)` (the bare tool name for other tools, or a multi-line command).
+- **Allow once**: a rule for exactly this action, `Bash(<command>)`,
+  `PowerShell(<command>)` or `Edit(<file>)` (the bare tool name for other
+  tools, or a multi-line command).
 - **Always allow "npm …" commands** (`Bash(npm *)`, from the command's first
   word) or **Always allow edits in "src"** (`Edit(<folder of the file>/**)`;
   "anywhere in the workspace" when the file is at its root). Only for `Bash` and
@@ -315,6 +316,16 @@ progress, show hidden messages), defaults for new sessions (model, effort, permi
 advanced (listen host and port, CLI command, Claude home directory). Theme
 changes preview immediately; Save writes the configuration, Reset returns to
 the last saved values.
+
+Last section, right before the Save / Reset / Back buttons that close the page:
+**Current workspace** (the workspace last opened on the main page), with its
+name and path and one button, **Turn off / Turn back on Claude's PowerShell
+tool in this workspace**; the label itself tells the current state. It writes or removes `CLAUDE_CODE_USE_POWERSHELL_TOOL=0` in the
+workspace's versioned `.claude/settings.json` at once (not through Save), the
+status area confirms, and it applies from the next message, in the terminal
+too. Why: on Windows the CLI's PowerShell checks can fail ("pwsh exited with
+code 1: La ligne de commande est trop longue", see `claude-p-usage.md` 4.A),
+and Claude then works through Bash only.
 
 ## 10. Languages, themes, sounds
 

@@ -192,5 +192,14 @@
 	"button.back": "Back",
 	"status.optionsSaved": "Options saved.",
 	"status.optionsSaveFailed": "Failed to save options.",
-	"status.optionsReset": "Form reset."
+	"status.optionsReset": "Form reset.",
+
+	"heading.workspaceSettings": "Current workspace",
+	"workspaceSettings.none": "No current workspace: open one in the app.",
+	"workspaceSettings.readFailed": "Could not read the workspace's settings: {{error}}",
+	"workspaceSettings.writeFailed": "Could not change the workspace's settings: {{error}}",
+	"button.disablePowerShellTool": "Turn off Claude's PowerShell tool in this workspace",
+	"button.enablePowerShellTool": "Turn Claude's PowerShell tool back on in this workspace",
+	"status.powerShellToolDisabled": "PowerShell tool turned off for this workspace, from the next message.",
+	"status.powerShellToolEnabled": "PowerShell tool turned back on for this workspace, from the next message."
 }

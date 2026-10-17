@@ -100,6 +100,54 @@ async function onResetClick () {
 	setStatus(t('status.optionsReset'));
 }
 
+// The workspace last opened on the main page, whose .claude/settings.json the
+// PowerShell button edits. Applied at once, not by the form's Save button.
+let currentWorkspace = '';
+let powerShellToolDisabled = false;
+
+// The button's label tells the current state: "Turn off…" or "Turn back on…".
+function renderPowerShellTool () {
+	let button = document.getElementById('powerShellToolButton');
+	button.textContent = t(powerShellToolDisabled ? 'button.enablePowerShellTool' : 'button.disablePowerShellTool');
+	button.hidden = false;
+}
+
+async function loadWorkspaceSettings () {
+	let store = await (await fetch('/api/workspaces')).json();
+	let entry = store.workspaces.find(workspace => workspace.path === store.lastWorkspace);
+	let nameLine = document.getElementById('workspaceSettingsName');
+	if (!entry) {
+		nameLine.textContent = t('workspaceSettings.none');
+		return;
+	}
+	currentWorkspace = entry.path;
+	nameLine.textContent = entry.name ? `${entry.name} (${entry.path})` : entry.path;
+	let response = await fetch(`/api/powershell-tool?cwd=${encodeURIComponent(currentWorkspace)}`);
+	let data = await response.json();
+	if (!response.ok) {
+		setStatus(t('workspaceSettings.readFailed', { error: data.error ?? '' }));
+		return;
+	}
+	powerShellToolDisabled = data.disabled;
+	renderPowerShellTool();
+}
+
+async function onPowerShellToolClick () {
+	let response = await fetch(`/api/powershell-tool?cwd=${encodeURIComponent(currentWorkspace)}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ disabled: !powerShellToolDisabled }),
+	});
+	let data = await response.json();
+	if (!response.ok) {
+		setStatus(t('workspaceSettings.writeFailed', { error: data.error ?? '' }));
+		return;
+	}
+	powerShellToolDisabled = data.disabled;
+	renderPowerShellTool();
+	setStatus(t(powerShellToolDisabled ? 'status.powerShellToolDisabled' : 'status.powerShellToolEnabled'));
+}
+
 function onBackClick () {
 	window.location.href = 'index.html';
 }
@@ -108,6 +156,8 @@ async function onWindowLoad () {
 	await initTheme();
 	await initI18n();
 	await populateForm();
+	await loadWorkspaceSettings();
+	document.getElementById('powerShellToolButton').addEventListener('click', onPowerShellToolClick);
 	document.getElementById('optionsForm').addEventListener('submit', onOptionsSubmit);
 	document.getElementById('resetOptionsButton').addEventListener('click', onResetClick);
 	document.getElementById('backButton').addEventListener('click', onBackClick);

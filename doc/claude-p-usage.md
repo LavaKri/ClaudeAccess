@@ -99,10 +99,19 @@ tool; "Allow once" grants a rule for exactly the denied action
 tools. Rules are built in `front/permissionRules.js` and passed one per
 argument after `--allowed-tools`.
 
-**Still proposed.** Show `decision_reason` in the popup (absent from an
-ordinary `-p` denial: useful with B only); replace `continue` with an
-explicit prompt ("The <Tool> tool is now allowed, redo the action that was
-denied").
+**Kept as is: the `continue` resume.** An explicit prompt ("The <Tool> tool is
+now allowed for the action that was denied. Do that action again now, then
+carry on with the task.") was compared with `continue`, 4 `haiku` runs each,
+reproducing the app's flow (CLI killed at the marker, then `--resume` with an
+`Edit(<file>)` rule) *(2026-10-17)*: the file was created 4 times out of 4
+both ways. The explicit prompt redid the denied action directly every time;
+once, `continue` first tried another tool (PowerShell, denied) before
+`Write`. The old "Done" without a tool call was not seen again. Not worth the
+change (the history filter would also have to know the new prompt); B makes
+the resume unnecessary anyway.
+
+**Not done.** Show `decision_reason` in the popup: absent from an ordinary
+`-p` denial, useful with B only.
 
 - **Strengths.** Already built and working; documented options only; no
   waiting process; works in every mode, `dontAsk` included.
@@ -131,6 +140,14 @@ denied").
     match. The app uses `//c/...`. `Edit(//c/.../sub/**)` does not allow a
     write next to `sub`.
   - Several rules as separate arguments after `--allowed-tools` work.
+  - PowerShell (4 runs): `PowerShell(Get-Date -Format yyyy)`, the exact
+    command, matches. `PowerShell(Get-Date *)` never did, not even for the
+    plain command: the CLI first parses the command with `pwsh`, and with the
+    Microsoft Store `pwsh` (7.6.7, `WindowsApps` alias) on this machine that
+    parse fails, the denial reading "Command contains malformed syntax that
+    cannot be parsed: pwsh exited with code 1: La ligne de commande est trop
+    longue". The app therefore offers PowerShell an exact "once" rule and the
+    whole tool, no prefix rule. To retry with a `pwsh` installed from the MSI.
 - **Tests to do.** Explicit resume prompt against `continue`, several runs
   each; whether `--allowed-tools` unblocks a tool in `dontAsk`; folder names
   containing parentheses in an `Edit` rule; the scoped popup with JAWS.

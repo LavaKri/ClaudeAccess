@@ -7,7 +7,8 @@ import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
 import { listProjects, listHistoryProjects, listSessions, loadSession, setCustomTitle, deleteSession, deleteProject, listSessionIds } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
-import { getWorkspaceStore, saveWorkspaceStore } from './workspaces.js';
+import { getWorkspaceStore, saveWorkspaceStore, isKnownWorkspace } from './workspaces.js';
+import { getPowerShellToolDisabled, setPowerShellToolDisabled } from './project-settings.js';
 import { getSessionOptions, saveSessionOptions, pruneSessionOptions, deleteSessionOptions, deleteWorkspaceSessionOptions } from './session-options.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +64,29 @@ app.get('/api/workspaces', async (req, res) => {
 app.put('/api/workspaces', async (req, res) => {
 	res.json(await saveWorkspaceStore(req.body));
 });
+
+// The PowerShell tool switch in a workspace's .claude/settings.json
+// (project-settings.js). Only for a workspace of the user's list: this writes
+// into the project's own files.
+async function powerShellToolRoute (req, res, action) {
+	let cwd = String(req.query.cwd || '');
+	if (!cwd || !(await isKnownWorkspace(cwd))) {
+		res.status(400).json({ error: 'Unknown workspace' });
+		return;
+	}
+	try {
+		res.json(await action(cwd));
+	} catch (err) {
+		res.status(409).json({ error: err.message });
+	}
+}
+
+app.get('/api/powershell-tool', (req, res) => {
+	res.set('Cache-Control', 'no-store');
+	return powerShellToolRoute(req, res, getPowerShellToolDisabled);
+});
+
+app.put('/api/powershell-tool', (req, res) => powerShellToolRoute(req, res, cwd => setPowerShellToolDisabled(cwd, req.body?.disabled === true)));
 
 // Model / effort / permission mode remembered per session (session-options.js).
 app.get('/api/session-options', async (req, res) => {

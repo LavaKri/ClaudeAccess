@@ -8,6 +8,7 @@
 // - "Edit(...)" also covers Write. An absolute Windows path must be written
 //   "//c/Users/..." (drive letter, no colon): the documented "//C:/..." form
 //   never matches. A rule for "<dir>/**" doesn't allow writing next to <dir>.
+// - "PowerShell(<exact command>)" matches.
 
 const EDIT_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'];
 
@@ -45,6 +46,14 @@ export function buildPermissionChoices (toolName, input, denialMessage) {
 			once: part && !part.includes('\n') ? `Bash(${part})` : 'Bash',
 			scoped: firstWord ? { rule: `Bash(${firstWord} *)`, kind: 'commands', value: firstWord } : null,
 			whole: 'Bash',
+		};
+	}
+	if (toolName === 'PowerShell' && typeof input?.command === 'string') {
+		let command = input.command.trim();
+		return {
+			once: command && !command.includes('\n') ? `PowerShell(${command})` : 'PowerShell',
+			scoped: null,
+			whole: 'PowerShell',
 		};
 	}
 	let path = input?.file_path ?? input?.notebook_path;
