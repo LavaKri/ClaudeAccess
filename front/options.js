@@ -5,6 +5,7 @@ import { MODELS, EFFORTS, PERMISSION_MODES, populateSelect } from './runOptions.
 
 const LANGUAGES = ['fr', 'en'];
 const THEMES = ['light', 'dark', 'contrast'];
+const PERMISSION_METHODS = ['resume', 'hook'];
 
 // language/theme both support an empty value ('' = auto-detect), stored as
 // such in config — same convention, so they share this helper. MODELS/
@@ -43,6 +44,12 @@ async function populateForm () {
 	document.getElementById('progressAnnounceInput').checked = config.progressAnnounce;
 	document.getElementById('showHiddenMessagesInput').checked = config.showHiddenMessages;
 
+	populateSelect(document.getElementById('permissionMethodSelect'), PERMISSION_METHODS, 'option.permissionMethod', config.permissionMethod);
+	let timeoutSelect = document.getElementById('permissionTimeoutSelect');
+	timeoutSelect.replaceChildren(...Array.from({ length: 20 }, (_, i) => new Option(
+		t('option.permissionTimeout', { count: i + 1 }), String(i + 1), false, i + 1 === config.permissionTimeoutMinutes)));
+	updatePermissionTimeoutState();
+
 	populateSelect(document.getElementById('defaultModelSelect'), MODELS, 'option.model', config.defaultModel);
 	populateSelect(document.getElementById('defaultEffortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
 	populateSelect(document.getElementById('defaultPermissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
@@ -53,6 +60,11 @@ async function populateForm () {
 	document.getElementById('claudeHomeDirInput').value = config.claudeHomeDir;
 
 	applyTheme(config.theme);
+}
+
+// The time to answer only applies when the CLI waits for the answer.
+function updatePermissionTimeoutState () {
+	document.getElementById('permissionTimeoutSelect').disabled = document.getElementById('permissionMethodSelect').value !== 'hook';
 }
 
 // Live preview: the chosen theme applies immediately, before Enregistrer is
@@ -73,6 +85,8 @@ async function onOptionsSubmit (event) {
 		completionSound: document.getElementById('completionSoundInput').checked,
 		progressAnnounce: document.getElementById('progressAnnounceInput').checked,
 		showHiddenMessages: document.getElementById('showHiddenMessagesInput').checked,
+		permissionMethod: document.getElementById('permissionMethodSelect').value,
+		permissionTimeoutMinutes: Number(document.getElementById('permissionTimeoutSelect').value),
 		defaultModel: document.getElementById('defaultModelSelect').value,
 		defaultEffort: document.getElementById('defaultEffortSelect').value,
 		defaultPermissionMode: document.getElementById('defaultPermissionModeSelect').value,
@@ -162,6 +176,7 @@ async function onWindowLoad () {
 	document.getElementById('resetOptionsButton').addEventListener('click', onResetClick);
 	document.getElementById('backButton').addEventListener('click', onBackClick);
 	document.getElementById('themeSelect').addEventListener('change', onThemeChange);
+	document.getElementById('permissionMethodSelect').addEventListener('change', updatePermissionTimeoutState);
 }
 
 window.addEventListener('load', onWindowLoad);

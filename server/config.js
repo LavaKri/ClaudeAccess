@@ -45,10 +45,18 @@ const DEFAULTS = {
 	showHiddenMessages: false,
 	// Applied to a brand new session that has no run-options history of its
 	// own yet (see front/index.js's loadRunOptionsForSession).
+	// How a permission request is handled: 'resume' (the CLI denies, the app
+	// kills it and resumes with the tool allowed) or 'hook' (a PermissionRequest
+	// hook makes the CLI wait for the answer, up to permissionTimeoutMinutes).
+	// See doc/claude-p-usage.md, methods A and B.
+	permissionMethod: 'resume',
+	permissionTimeoutMinutes: 6,
 	defaultModel: 'sonnet',
 	defaultEffort: 'low',
 	defaultPermissionMode: 'default',
 };
+
+const PERMISSION_METHODS = ['resume', 'hook'];
 
 function sanitize (patch) {
 	let clean = {};
@@ -61,6 +69,11 @@ function sanitize (patch) {
 		} else if (key === 'port') {
 			let n = Number(value);
 			if (Number.isInteger(n) && n > 0 && n <= 65535) clean[key] = n;
+		} else if (key === 'permissionMethod') {
+			if (PERMISSION_METHODS.includes(value)) clean[key] = value;
+		} else if (key === 'permissionTimeoutMinutes') {
+			let n = Number(value);
+			if (Number.isInteger(n) && n >= 1 && n <= 20) clean[key] = n;
 		} else if (key === 'completionSound' || key === 'progressAnnounce' || key === 'showHiddenMessages') {
 			clean[key] = Boolean(value);
 		} else if (typeof value === 'string') {

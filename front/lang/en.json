@@ -164,6 +164,12 @@
 	"heading.appearanceOptions": "Appearance and usability",
 	"heading.defaultRunOptions": "Defaults for new sessions",
 	"heading.advancedOptions": "Advanced settings",
+	"heading.permissionOptions": "Permission requests",
+	"label.permissionMethod": "How permission requests are handled: ",
+	"option.permissionMethod.resume": "Stop Claude, then resume it after the answer",
+	"option.permissionMethod.hook": "Make Claude wait for the answer",
+	"label.permissionTimeout": "Time to answer: ",
+	"option.permissionTimeout": "{{count}} min",
 
 	"label.language": "Language: ",
 	"language.auto": "Auto-detect",

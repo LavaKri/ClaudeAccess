@@ -217,8 +217,17 @@ WebSocket and answers with
     `node -e …` → `addRules` on the **exact** command, destination
     `localSettings` (would be written to the workspace's
     `.claude/settings.local.json` if echoed as is).
-- **Tests to do.** A wait close to the configured timeout, and what happens
-  when it expires; server restart and browser tab closed while a request is
+  - Expiry *(2026-10-17, `haiku`, hook `timeout: 20`, server never answers)*:
+    the CLI waits exactly the timeout (POST at 4.0 s, denial at 24.0 s), then
+    behaves as an ordinary `-p` denial: `system/permission_denied` with the
+    usual text ("Claude requested permissions to write to …, but you haven't
+    granted it yet."), no `decision_reason`, error `tool_result`, the denial
+    in `permission_denials`, file not created. The model then asks the user
+    to approve and the run ends normally (`success`). So an expired request
+    can't be told apart from a plain denial in the stream, and a late answer
+    can only go through A (resume with the rule granted).
+- **Tests to do.** A wait close to a long timeout (an hour), whether a maximum
+  exists; server restart and browser tab closed while a request is
   pending; abort (kill) during a pending request; behaviour with `--resume`
   and `--fork-session`; `auto` and `bypassPermissions` modes; MCP tools;
   requests raised inside a subagent; the popup with JAWS. (Scoped `Edit` path

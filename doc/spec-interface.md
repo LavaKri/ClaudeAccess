@@ -325,7 +325,11 @@ allows it only inside the workspace)", since it widens the tool.
 
 General (language, theme), appearance and usability (messages per page,
 sessions per page, title preview word count, completion sound, announce
-progress, show hidden messages), defaults for new sessions (model, effort, permission mode),
+progress, show hidden messages), permission requests (how they are handled:
+"Stop Claude, then resume it after the answer" (method A) or "Make Claude wait
+for the answer" (method B); time to answer, 1 to 20 minutes, 6 by default,
+disabled unless method B is chosen; stored only, method B is not implemented
+yet), defaults for new sessions (model, effort, permission mode),
 advanced (listen host and port, CLI command, Claude home directory). Theme
 changes preview immediately; Save writes the configuration, Reset returns to
 the last saved values.

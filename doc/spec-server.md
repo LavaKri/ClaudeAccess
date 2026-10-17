@@ -40,6 +40,8 @@ Global preferences, merged over defaults and sanitised on every read and write
 | `completionSound` | `true` | Sound at the end of a response |
 | `progressAnnounce` | `true` | Progress line announced by the screen reader |
 | `showHiddenMessages` | `false` | Show the messages hidden as noise (section 4) |
+| `permissionMethod` | `resume` | `resume` (method A: the CLI denies, the app resumes with the tool allowed) or `hook` (method B: the CLI waits for the answer). Stored only so far: the hook itself is not implemented yet |
+| `permissionTimeoutMinutes` | `6` | Time to answer with `hook`, 1 to 20 minutes |
 | `defaultModel`, `defaultEffort`, `defaultPermissionMode` | `sonnet`, `low`, `default` | Used when a session has no recorded options |
 
 ### 2.1b `session-options/<workspace>.json` (`server/session-options.js`)

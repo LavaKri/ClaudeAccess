@@ -164,6 +164,12 @@
 	"heading.appearanceOptions": "Apparence et ergonomie",
 	"heading.defaultRunOptions": "Paramètres par défaut des nouvelles sessions",
 	"heading.advancedOptions": "Paramètres avancés",
+	"heading.permissionOptions": "Demandes de permission",
+	"label.permissionMethod": "Traitement des demandes de permission : ",
+	"option.permissionMethod.resume": "Interrompre Claude puis le relancer après la réponse",
+	"option.permissionMethod.hook": "Faire attendre Claude pendant la réponse",
+	"label.permissionTimeout": "Temps pour répondre : ",
+	"option.permissionTimeout": "{{count}} min",
 
 	"label.language": "Langue : ",
 	"language.auto": "Détection automatique",
