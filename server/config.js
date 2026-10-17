@@ -39,6 +39,10 @@ const DEFAULTS = {
 	// Whether the progress line below the prompt is announced by the screen
 	// reader as it changes (aria-live), rather than only readable on demand.
 	progressAnnounce: true,
+	// Shows the messages normally hidden as noise (the bare "continue" resume
+	// prompts and the "No response requested." filler replies) — see
+	// history.js and front/index.js's isShowableText().
+	showHiddenMessages: false,
 	// Applied to a brand new session that has no run-options history of its
 	// own yet (see front/index.js's loadRunOptionsForSession).
 	defaultModel: 'sonnet',
@@ -57,7 +61,7 @@ function sanitize (patch) {
 		} else if (key === 'port') {
 			let n = Number(value);
 			if (Number.isInteger(n) && n > 0 && n <= 65535) clean[key] = n;
-		} else if (key === 'completionSound' || key === 'progressAnnounce') {
+		} else if (key === 'completionSound' || key === 'progressAnnounce' || key === 'showHiddenMessages') {
 			clean[key] = Boolean(value);
 		} else if (typeof value === 'string') {
 			clean[key] = value;

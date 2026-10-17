@@ -160,6 +160,7 @@
 	"label.titlePreviewWordCount": "Word count for replies' title preview: ",
 	"label.completionSound": "Sound when a response finishes",
 	"label.progressAnnounce": "Announce progress steps with the screen reader",
+	"label.showHiddenMessages": "Show hidden messages (\"continue\" prompts and \"No response requested.\" replies)",
 	"aria.progress": "Progress",
 	"progress.idle": "Waiting for a prompt",
 	"progress.working": "Claude is working...",

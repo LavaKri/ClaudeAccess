@@ -41,6 +41,7 @@ async function populateForm () {
 	document.getElementById('titlePreviewWordCountInput').value = config.titlePreviewWordCount;
 	document.getElementById('completionSoundInput').checked = config.completionSound;
 	document.getElementById('progressAnnounceInput').checked = config.progressAnnounce;
+	document.getElementById('showHiddenMessagesInput').checked = config.showHiddenMessages;
 
 	populateSelect(document.getElementById('defaultModelSelect'), MODELS, 'option.model', config.defaultModel);
 	populateSelect(document.getElementById('defaultEffortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
@@ -71,6 +72,7 @@ async function onOptionsSubmit (event) {
 		titlePreviewWordCount: Number(document.getElementById('titlePreviewWordCountInput').value),
 		completionSound: document.getElementById('completionSoundInput').checked,
 		progressAnnounce: document.getElementById('progressAnnounceInput').checked,
+		showHiddenMessages: document.getElementById('showHiddenMessagesInput').checked,
 		defaultModel: document.getElementById('defaultModelSelect').value,
 		defaultEffort: document.getElementById('defaultEffortSelect').value,
 		defaultPermissionMode: document.getElementById('defaultPermissionModeSelect').value,

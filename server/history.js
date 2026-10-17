@@ -275,22 +275,24 @@ async function readSessionFile (filePath, cwd) {
 		// Hidden noise: the bare "continue" prompt (sent automatically to resume
 		// after a permission grant, or typed just to keep going) and the "No
 		// response requested." reply, whichever model wrote it. A reply to a
-		// "continue" that has real content is kept.
+		// "continue" that has real content is kept. Flagged rather than dropped:
+		// the front end shows them when the showHiddenMessages option is on.
 		let bareText = text.trim().toLowerCase();
-		if (entry.type === 'user' && bareText === 'continue') continue;
-		if (entry.type === 'assistant' && bareText === 'no response requested.') continue;
-		if (entry.type === 'assistant') lastMessagePreview = text.slice(0, 100);
+		let hidden = (entry.type === 'user' && bareText === 'continue')
+			|| (entry.type === 'assistant' && bareText === 'no response requested.');
+		if (entry.type === 'assistant' && !hidden) lastMessagePreview = text.slice(0, 100);
 		messages.push({
 			role: entry.message?.role || entry.type,
 			text,
 			model: synthetic ? undefined : entry.message?.model,
 			effort: synthetic ? undefined : entry.effort,
+			...(hidden && { hidden: true }),
 		});
 	}
 
 	// Nothing readable (unparseable lines, or only hidden filler) and no title:
 	// not worth listing as a blank entry.
-	if (!messages.length && !aiTitle && !customTitle) return null;
+	if (!messages.some(message => !message.hidden) && !aiTitle && !customTitle) return null;
 
 	return {
 		sessionId, startTime, lastTime, lastMessagePreview, aiTitle, customTitle,

@@ -160,6 +160,7 @@
 	"label.titlePreviewWordCount": "Nombre de mots dans l'aperçu du titre des réponses : ",
 	"label.completionSound": "Son à la fin de chaque réponse",
 	"label.progressAnnounce": "Vocaliser les étapes de progression avec le lecteur d'écran",
+	"label.showHiddenMessages": "Afficher les messages masqués (relances « continue » et réponses « No response requested. »)",
 	"aria.progress": "Progression",
 	"progress.idle": "Attente d'un prompt",
 	"progress.working": "Claude travaille...",

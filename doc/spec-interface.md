@@ -96,7 +96,12 @@ Listed newest first for the current workspace, paginated.
 - Noise hidden, in the rebuilt history and in the live log alike: replies
   whose text is exactly "No response requested." (whichever model wrote them,
   `<synthetic>` included), empty texts, and bare "continue" prompts. A turn
-  whose only reply is that filler produces no log entry and no sound.
+  whose only reply is that filler produces no log entry and no sound. The
+  option "Show hidden messages" brings back the filler replies and the
+  "continue" prompts (including the silent ones sent after a permission
+  grant), with no particular marking; a filler turn is then an ordinary turn
+  (log entry, status, sound). Empty texts stay hidden. Takes effect when the
+  main page is loaded.
 - **Synthetic messages are not hidden as a class.** `<synthetic>` is the
   placeholder model of messages the CLI writes itself. Besides the filler,
   some say something the user needs, such as "You've hit your session limit ·
@@ -271,7 +276,7 @@ is not reduced: only scoped rules could do that (see `open-questions.md`).
 
 General (language, theme), appearance and usability (messages per page,
 sessions per page, title preview word count, completion sound, announce
-progress), defaults for new sessions (model, effort, permission mode),
+progress, show hidden messages), defaults for new sessions (model, effort, permission mode),
 advanced (listen host and port, CLI command, Claude home directory). Theme
 changes preview immediately; Save writes the configuration, Reset returns to
 the last saved values.

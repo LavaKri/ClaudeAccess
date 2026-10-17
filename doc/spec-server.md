@@ -39,6 +39,7 @@ Global preferences, merged over defaults and sanitised on every read and write
 | `language`, `theme` | `''` | Empty = auto-detect in the browser |
 | `completionSound` | `true` | Sound at the end of a response |
 | `progressAnnounce` | `true` | Progress line announced by the screen reader |
+| `showHiddenMessages` | `false` | Show the messages hidden as noise (section 4) |
 | `defaultModel`, `defaultEffort`, `defaultPermissionMode` | `sonnet`, `low`, `default` | Used when a session has no recorded options |
 
 ### 2.1b `session-options/<workspace>.json` (`server/session-options.js`)
@@ -108,8 +109,11 @@ removed on 2026-10-06, see `spec-interface.md`.)
   `runOptions`.
 - **Hidden noise**: assistant replies that are exactly "No response
   requested." (any model, `<synthetic>` included) and user messages that are
-  exactly "continue" are left out of the returned messages. The files on disk
-  are never modified.
+  exactly "continue" are returned flagged `hidden: true`; the front end leaves
+  them out unless the `showHiddenMessages` option is on. They don't count as
+  content: a session made only of them (and without a title) is not listed,
+  and they never become the last-reply preview. The files on disk are never
+  modified.
 - **Synthetic messages** (model `<synthetic>`, written by the CLI itself) are
   kept when they say something, such as the usage-limit notice "You've hit your
   session limit · resets …": returned with no `model` and no `effort`, and

@@ -28,6 +28,10 @@ const EXTRA_WORKSPACES_KEY = 'claudeAccessible.extraWorkspaces';
 // Set from config.completionSound in onWindowLoad — governs both sounds
 // below, no separate toggle per sound.
 let completionSoundEnabled = true;
+// Set from config.showHiddenMessages in onWindowLoad: shows the bare
+// "continue" prompts and the "No response requested." replies that are
+// otherwise hidden as noise, in the history and in the live log alike.
+let showHiddenMessages = false;
 // One Audio instance per clip, created lazily (not at module load) and
 // reused across turns, rather than a fresh `new Audio()` each time, so a
 // quick back-to-back trigger restarts the same clip instead of piling up
@@ -805,7 +809,9 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	hideQuestion();
 	setWorking(true);
 	setStatus('');
-	// Hidden from the message log: this isn't a message the user actually typed.
+	// Hidden from the message log, unless hidden messages are shown: this isn't a
+	// message the user actually typed.
+	if (showHiddenMessages) appendMessage('you', 'continue');
 	let runOptions = getRunOptionsForRun();
 	lastRequestedEffort = runOptions.effort;
 	await send({
@@ -917,10 +923,11 @@ async function fetchFreshTitle () {
 }
 
 // Same filler as the history hides (server/history.js): nothing worth a log
-// entry, whichever model wrote it.
+// entry, whichever model wrote it — unless hidden messages are shown. When they
+// are, the filler turn is an ordinary turn (log entry, status, sound).
 function isShowableText (text) {
 	let bare = String(text ?? '').trim().toLowerCase();
-	return Boolean(bare) && bare !== 'no response requested.';
+	return Boolean(bare) && (showHiddenMessages || bare !== 'no response requested.');
 }
 
 // Shows each text the model writes as it arrives. The CLI sends every assistant
@@ -1098,10 +1105,12 @@ const ROLE_TO_PREFIX = { user: 'you', assistant: 'claude', tool: 'tool', notific
 // have been seen to carry back-to-back assistant entries with identical text,
 // same as a retried tool_use during a live run), so a resumed history reads
 // the same way. "tool" entries carry a `tool` field ({ kind, label } — see
-// history.js's classifyToolUse()) instead of `text`.
+// history.js's classifyToolUse()) instead of `text`. Entries flagged `hidden`
+// (noise, see history.js) are left out unless hidden messages are shown.
 function groupMessages (rawMessages) {
 	let groups = [];
 	for (let message of rawMessages) {
+		if (message.hidden && !showHiddenMessages) continue;
 		let prefix = ROLE_TO_PREFIX[message.role] || 'claude';
 		let entry = prefix === 'tool' ? message.tool : message.text;
 		let last = groups[groups.length - 1];
@@ -1668,6 +1677,7 @@ async function onWindowLoad () {
 	SESSIONS_PAGE_SIZE = config.sessionsPerPage;
 	PREVIEW_WORD_COUNT = config.titlePreviewWordCount;
 	completionSoundEnabled = config.completionSound;
+	showHiddenMessages = config.showHiddenMessages;
 	setProgressAnnounce(config.progressAnnounce);
 	setProgress(t('progress.idle'));
 	populateSelect(document.getElementById('modelSelect'), MODELS, 'option.model', config.defaultModel);
