@@ -299,7 +299,7 @@ clicked:
   a text field ("What Claude should do instead"); cancelling it brings the
   question back. The text goes with the denial and Claude reads it. The CLI's
   `permission_denied` that follows (`decision_reason_type: "hook"`) is
-  ignored. In method A, the explanation becomes the next prompt instead.
+  ignored, and so is that tool call in the result's `permission_denials`. In method A, the explanation becomes the next prompt instead.
 - **Abort** while a request waits: the server denies it and stops the CLI.
 - **Time to answer over** (`permission_request_expired`): the status area
   says so ("Time to answer is over: Claude got a denial and has been stopped.

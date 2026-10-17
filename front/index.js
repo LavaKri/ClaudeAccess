@@ -69,6 +69,10 @@ let awaitingToolPermission = null; // { toolName, toolUseId, hookRequestId }
 // True while "Deny and explain" has replaced the question by its text field, so
 // closing that field isn't taken for a lost question (onQuestionDialogClose).
 let explainingDenial = false;
+// tool_use ids the user denied through the method B hook during the current
+// run: the result lists them in permission_denials too, and they must not be
+// asked about again (see handleDeniedAtEnd).
+let hookDeniedToolUseIds = new Set();
 
 let currentCwd = '';
 let currentSessionId = null;
@@ -1023,7 +1027,10 @@ function isAlreadyGranted (toolName, toolInput, denialMessage) {
 function handleIfPermissionDenied (message) {
 	if (message.type !== 'system' || message.subtype !== 'permission_denied') return false;
 	// The user's own "Deny" through the method B hook: already answered.
-	if (message.decision_reason_type === 'hook') return true;
+	if (message.decision_reason_type === 'hook') {
+		if (message.tool_use_id) hookDeniedToolUseIds.add(message.tool_use_id);
+		return true;
+	}
 	// A question is already open (several denials in the same step): the first
 	// one is the one asked about.
 	if (awaitingToolPermission) return true;
@@ -1046,7 +1053,9 @@ function handleIfPermissionDenied (message) {
 // permission_denials, but only once the run is over. Asks about the first one
 // that allowing could still fix.
 function handleDeniedAtEnd (message) {
-	let denial = (message.permission_denials ?? []).find(entry => !isAlreadyGranted(entry.tool_name, entry.tool_input));
+	let userDenied = hookDeniedToolUseIds;
+	hookDeniedToolUseIds = new Set();
+	let denial = (message.permission_denials ?? []).find(entry => !userDenied.has(entry.tool_use_id) && !isAlreadyGranted(entry.tool_name, entry.tool_input));
 	if (!denial) return false;
 	showToolPermissionRequest(denial.tool_name, denial.tool_input, denial.tool_use_id, t('tool.request.deniedAtEnd'));
 	return true;
