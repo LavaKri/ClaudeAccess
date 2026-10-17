@@ -10,7 +10,9 @@ See [doc/plan.md](doc/plan.md) for the phased implementation plan and the
 architecture decisions behind it. What the server and the interface do today
 is described in [doc/spec-server.md](doc/spec-server.md) and
 [doc/spec-interface.md](doc/spec-interface.md); undecided points are tracked
-in [doc/open-questions.md](doc/open-questions.md).
+in [doc/open-questions.md](doc/open-questions.md). The ways of driving
+`claude -p` (permission requests, dialogs with the user, licensing, tests) are
+compared in [doc/claude-p-usage.md](doc/claude-p-usage.md).
 
 ## Stack
 
