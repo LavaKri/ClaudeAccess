@@ -643,9 +643,34 @@ function closeDialog (dialog) {
 
 function hideQuestion () {
 	let dialog = document.getElementById('questionArea');
+	document.getElementById('showQuestionButton').hidden = true;
 	dialog.oncancel = null;
 	dialog.textContent = '';
 	closeDialog(dialog);
+}
+
+// The question last rendered, so it can be shown again (see
+// onQuestionDialogClose).
+let lastQuestion = null;
+
+// The question dialog can close while a permission request is still pending:
+// the browser closes a modal dialog itself after repeated Escape presses, even
+// though renderQuestion blocks Escape. The run is then still waiting for an
+// answer with nothing to answer it, so a "Show the permission request" button
+// appears next to Abort and takes the focus.
+function onQuestionDialogClose () {
+	let button = document.getElementById('showQuestionButton');
+	let lost = Boolean(awaitingToolPermission) && Boolean(lastQuestion);
+	button.hidden = !lost;
+	if (!lost) return;
+	setStatus(t('status.questionHidden'));
+	button.focus();
+}
+
+function showQuestionAgain () {
+	if (!awaitingToolPermission || !lastQuestion) return;
+	document.getElementById('showQuestionButton').hidden = true;
+	renderQuestion(lastQuestion.text, lastQuestion.options, lastQuestion.extraLines);
 }
 
 // Renders the question dialog with a text and a set of option buttons, and
@@ -654,6 +679,7 @@ function hideQuestion () {
 // here (unlike showInputDialog below): a permission request must be answered
 // through one of the option buttons.
 function renderQuestion (text, options, extraLines = []) {
+	lastQuestion = { text, options, extraLines };
 	let dialog = document.getElementById('questionArea');
 	dialog.textContent = '';
 	dialog.appendChild(create('p', text));
@@ -719,7 +745,7 @@ function showInputDialog (title, message, defaultValue = '') {
 		});
 		dialog.appendChild(form);
 
-		dialog.addEventListener('cancel', () => finish(null), { once: true });
+		dialog.oncancel = () => finish(null);
 		openDialog(dialog);
 		field.focus();
 		field.select();
@@ -756,7 +782,7 @@ function showConfirmDialog (title, message) {
 		dialog.appendChild(confirmButton);
 		dialog.appendChild(cancelButton);
 
-		dialog.addEventListener('cancel', () => finish(false), { once: true });
+		dialog.oncancel = () => finish(false);
 		openDialog(dialog);
 		confirmButton.focus();
 	});
@@ -1066,7 +1092,15 @@ async function nameBranch () {
 	await loadSessionList();
 }
 
+// While a permission question is pending the CLI has already been cut (see
+// handleIfPermissionDenied): aborting then means declining the request, which
+// also clears the pending state — otherwise the page would keep ignoring the
+// next runs' messages as leftovers of the cut CLI.
 async function onAbortClick () {
+	if (awaitingToolPermission) {
+		denyToolPermission();
+		return;
+	}
 	await send({ type: 'abort' });
 }
 
@@ -1077,6 +1111,8 @@ function resetConversationView () {
 	currentPage = 1;
 	lastAssistantModel = null;
 	renderMessages();
+	// A question left open belongs to the run of the previous view.
+	awaitingToolPermission = null;
 	hideQuestion();
 	setWorking(false);
 	setStatus('');
@@ -1576,7 +1612,7 @@ function showAddWorkspaceDialog () {
 		});
 		dialog.appendChild(form);
 
-		dialog.addEventListener('cancel', () => finish(null), { once: true });
+		dialog.oncancel = () => finish(null);
 		openDialog(dialog);
 		field.focus();
 	});
@@ -1626,7 +1662,7 @@ function showExistingWorkspacesDialog (candidates) {
 			dialog.appendChild(list);
 		}
 
-		dialog.addEventListener('cancel', () => finish(null), { once: true });
+		dialog.oncancel = () => finish(null);
 		openDialog(dialog);
 		firstFocus.focus();
 	});
@@ -1708,6 +1744,8 @@ async function onWindowLoad () {
 
 	let abortButton = document.getElementById('abortButton');
 	abortButton.addEventListener('click', onAbortClick);
+	document.getElementById('showQuestionButton').addEventListener('click', showQuestionAgain);
+	document.getElementById('questionArea').addEventListener('close', onQuestionDialogClose);
 
 	let addWorkspaceButton = document.getElementById('addWorkspaceButton');
 	addWorkspaceButton.addEventListener('click', onAddWorkspaceClick);

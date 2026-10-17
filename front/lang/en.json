@@ -34,6 +34,7 @@
 	"session.messageCount.one": "{{count}} message",
 	"session.messageCount.other": "{{count}} messages",
 	"button.abort": "Abort",
+	"button.showQuestion": "Show the permission request",
 
 	"label.model": "Model: ",
 	"option.model.haiku": "Haiku",
@@ -69,6 +70,7 @@
 	"status.copyFailed": "Failed to copy to clipboard.",
 	"status.working": "Working...",
 	"status.responseFinished": "Response finished",
+	"status.questionHidden": "The permission request was closed but is still waiting for an answer. Show the permission request button.",
 	"status.error": "Error",
 	"status.renameFailed": "Failed to rename the session.",
 	"status.deleteFailed": "Failed to delete the session.",

@@ -34,6 +34,7 @@
 	"session.messageCount.one": "{{count}} message",
 	"session.messageCount.other": "{{count}} messages",
 	"button.abort": "Interrompre",
+	"button.showQuestion": "Afficher la demande de permission",
 
 	"label.model": "Modèle : ",
 	"option.model.haiku": "Haiku",
@@ -69,6 +70,7 @@
 	"status.copyFailed": "Échec de la copie dans le presse-papiers.",
 	"status.working": "En cours...",
 	"status.responseFinished": "Réponse terminée",
+	"status.questionHidden": "La demande de permission a été fermée mais attend toujours une réponse. Bouton Afficher la demande de permission.",
 	"status.error": "Erreur",
 	"status.renameFailed": "Échec du renommage de la session.",
 	"status.deleteFailed": "Échec de la suppression de la session.",

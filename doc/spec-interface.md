@@ -237,6 +237,18 @@ separator); a last line with the raw CLI error text. Buttons: **Allow once**,
 **Always allow**, **Deny**. All lines are also mirrored into the live status
 area and focus goes to the first button. Escape does not close it.
 
+**Lost popup.** The browser still closes a modal dialog by itself after
+repeated Escape presses, and until 2026-10-17 an Escape could also run the
+leftover Escape handler of another dialog (rename, confirm…) closed earlier by
+a button, which emptied and closed the popup. Either way the run kept waiting
+with no question on screen. Now each dialog replaces the previous Escape
+handler instead of adding one, and if the popup closes while the request is
+still pending, a **Show the permission request** button appears next to Abort,
+takes the focus, and the status area says so; it reopens the same question.
+**Abort** while a request is pending declines it and clears the pending state
+(before, the page kept ignoring the next runs' messages and could stay
+"working"); opening another session or workspace clears it too.
+
 **Granting**: the tool is added to `--allowed-tools` and the run resumed with
 `--resume` and the prompt "continue" (hidden from the log). "Always allow"
 keeps the tool for the current session only: it is allowed for every tool
