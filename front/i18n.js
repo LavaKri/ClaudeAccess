@@ -46,6 +46,15 @@ export function t (key, vars) {
 	return text;
 }
 
+// Count-dependent string: picks "<key>.one" or "<key>.other" by the active
+// language's plural rules (French says "0 message", English "0 messages"),
+// and passes the count as {{count}}.
+export function tCount (key, count, vars) {
+	let category = new Intl.PluralRules(currentLanguage).select(count);
+	let pluralKey = `${key}.${category}`;
+	return t(pluralKey in translations ? pluralKey : `${key}.other`, { count, ...vars });
+}
+
 // data-i18n="key" replaces the element's text content.
 // data-i18n-attr="attr1:key1;attr2:key2" sets translated attributes instead
 // (e.g. aria-label, placeholder) — an element can carry both.

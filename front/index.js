@@ -1,5 +1,5 @@
 import { create } from './DOMHelpers.js';
-import { initI18n, t, getLanguage } from './i18n.js';
+import { initI18n, t, tCount, getLanguage } from './i18n.js';
 import { initTheme } from './theme.js';
 import { fetchConfig } from './ConfigClient.js';
 import { MODELS, EFFORTS, PERMISSION_MODES, toolStateInMode, populateSelect } from './runOptions.js';
@@ -1217,6 +1217,13 @@ let SESSIONS_PAGE_SIZE = 10;
 let allSessions = [];
 let sessionsPage = 0;
 
+// Messages of a listed session that its log would show: tool uses (collapsed
+// details, not messages) are left out, and so are the hidden ones unless the
+// showHiddenMessages option is on — same rule as groupMessages().
+function displayableMessageCount (session) {
+	return (session.messages ?? []).filter(message => message.role !== 'tool' && (showHiddenMessages || !message.hidden)).length;
+}
+
 function renderSessionPage () {
 	let list = document.getElementById('sessionList');
 	list.textContent = '';
@@ -1230,9 +1237,10 @@ function renderSessionPage () {
 		// Comma-separated, locale-formatted date (browser's own locale/regional
 		// settings — no hardcoded format) rather than parentheses, for clearer
 		// screen reader phrasing.
+		let countText = tCount('session.messageCount', displayableMessageCount(session));
 		let label = session.lastTime
-			? `${title}, ${new Date(session.lastTime).toLocaleString()}`
-			: title;
+			? `${title}, ${new Date(session.lastTime).toLocaleString()}, ${countText}`
+			: `${title}, ${countText}`;
 		let button = create('button', label);
 		button.type = 'button';
 		button.dataset.sessionId = session.sessionId;

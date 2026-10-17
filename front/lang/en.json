@@ -31,6 +31,8 @@
 	"button.sendLowEffort": "Send with low effort (Shift+Enter)",
 	"button.sendBranch": "Send to a new branch",
 	"session.branchTitle": "From {{title}}",
+	"session.messageCount.one": "{{count}} message",
+	"session.messageCount.other": "{{count}} messages",
 	"button.abort": "Abort",
 
 	"label.model": "Model: ",

@@ -55,7 +55,11 @@ order entries were added, paginated with Newer / Older buttons.
 
 ## 3. Sessions
 
-Listed newest first for the current workspace, paginated.
+Listed newest first for the current workspace, paginated. Each session button
+reads "<title>, <date of the last message>, <N> messages". N counts the
+messages its log would show: tool uses are left out, and so are the hidden
+messages (section 4) unless "Show hidden messages" is on. The plural follows
+the interface language ("0 message" in French, "0 messages" in English).
 
 - **New session**, **Refresh sessions**, choose one to open it (the last page
   of its messages is shown).
@@ -73,6 +77,11 @@ Listed newest first for the current workspace, paginated.
 - The workspace's last opened session is remembered with the entry and
   reopened at startup.
 - Title: custom title, else the AI title, else the start of the last reply.
+- Each session button reads "<title>, <date of the last message>, <N>
+  messages". N counts the messages its log would show: tool uses are left
+  out, and so are hidden messages unless "Show hidden messages" is on (section
+  4). Singular or plural follows the interface language's own rules ("0
+  message" in French, "0 messages" in English).
 
 ## 4. Messages
 

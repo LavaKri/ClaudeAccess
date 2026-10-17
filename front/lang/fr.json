@@ -31,6 +31,8 @@
 	"button.sendLowEffort": "Envoyer avec un effort faible (Maj+Entrée)",
 	"button.sendBranch": "Envoyer vers une nouvelle branche",
 	"session.branchTitle": "Depuis {{title}}",
+	"session.messageCount.one": "{{count}} message",
+	"session.messageCount.other": "{{count}} messages",
 	"button.abort": "Interrompre",
 
 	"label.model": "Modèle : ",
