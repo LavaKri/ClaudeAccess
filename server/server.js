@@ -65,6 +65,15 @@ app.put('/api/workspaces', async (req, res) => {
 	res.json(await saveWorkspaceStore(req.body));
 });
 
+// Subscription usage last reported by the CLI (rate_limit_event, sent with
+// every run), kept in memory so a freshly loaded page can show it right away.
+let lastRateLimitInfo = null;
+
+app.get('/api/usage-limits', (req, res) => {
+	res.set('Cache-Control', 'no-store');
+	res.json(lastRateLimitInfo);
+});
+
 // The PowerShell tool switch in a workspace's .claude/settings.json
 // (project-settings.js). Only for a workspace of the user's list: this writes
 // into the project's own files.
@@ -331,6 +340,13 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	lines.on('line', line => {
 		if (!line.trim()) return;
 		logToolError(line, toolNames);
+		if (line.includes('"type":"rate_limit_event"')) {
+			try {
+				lastRateLimitInfo = JSON.parse(line).rate_limit_info ?? lastRateLimitInfo;
+			} catch {
+				// Not JSON after all: keep the previous values.
+			}
+		}
 		if (line.includes('"type":"result"')) {
 			try {
 				if (JSON.parse(line).type === 'result') child.resultSeen = true;

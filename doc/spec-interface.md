@@ -19,7 +19,20 @@ Last updated: 2026-10-05.
    select with `aria-describedby`; main page only). A second line, present
    only when needed, says which tools the user allowed "always" beyond what
    the mode does (see section 7).
-3. Sidebar column: the **workspaces** section, then the **sessions** section.
+3. Sidebar column: the **usage** section, the **workspaces** section, then the
+   **sessions** section.
+
+**Usage section** ("Claude usage", H2). Subscription usage, from the
+`rate_limit_event` the CLI sends with every run: a status line (normal,
+warning threshold passed with its percentage, limit reached, or the raw value
+for an unknown status), a paid-mode line only while `isUsingOverage` is true,
+then one line per usage window with its rate and reset moment (the 5-hour
+window first, then the weekly one and any other the CLI reports, under its raw
+name). The reset moment is the time alone when it is today, else date and
+time. No `aria-live`: the lines are rewritten silently after each message and
+read on demand. On load the page shows the last values the server kept;
+before any run since the server started it says the information comes with
+the next message.
 4. Main column: session title (H2), status area (`role="status"`,
    `aria-live="polite"`), session options menu, token usage,
    message pagination, message log, the question dialog, the prompt form, and the

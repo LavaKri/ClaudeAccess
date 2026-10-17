@@ -258,6 +258,21 @@ async function main () {
 		},
 	});
 
+	// Same shape as the real CLI's (seen on 2026-10-17), with made-up figures.
+	let now = Math.floor(Date.now() / 1000);
+	await emit({
+		type: 'rate_limit_event',
+		session_id: sessionId,
+		rate_limit_info: {
+			status: 'allowed_warning', resetsAt: now + 3 * 86400, rateLimitType: 'seven_day',
+			utilization: 0.8, isUsingOverage: false, surpassedThreshold: 0.75,
+			unifiedWindows: {
+				five_hour: { utilization: Math.round(Math.random() * 100) / 100, resetsAt: now + 2 * 3600 },
+				seven_day: { utilization: 0.8, resetsAt: now + 3 * 86400 },
+			},
+		},
+	});
+
 	await emit({
 		type: 'result',
 		subtype: 'success',

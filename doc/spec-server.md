@@ -88,6 +88,7 @@ The user's own workspace list, with the state tied to each entry:
 | `PUT /api/sessions/:id/title` | Renames (appends a `custom-title` line, like `claude` does) |
 | `DELETE /api/sessions/:id` | Deletes the session file |
 | `GET /api/powershell-tool?cwd=`, `PUT /api/powershell-tool?cwd=` (`{ disabled }`) | Read / set `env.CLAUDE_CODE_USE_POWERSHELL_TOOL = "0"` in the workspace's versioned `.claude/settings.json` (`server/project-settings.js`). Only for a workspace of the user's list (400 otherwise). The rest of the file is kept; an `env` block or a file left empty is removed; a file that isn't a JSON object is never overwritten (409). The file is rewritten with 2-space indentation |
+| `GET /api/usage-limits` | Last `rate_limit_info` a CLI run reported (subscription usage), or `null` before the first run since the server started. Memory only |
 | `POST /api/pick-folder?lang=` | Opens the native Windows folder dialog on the server machine (PowerShell) and returns the chosen path or `null` |
 
 List responses are sent `no-store` where a stale cache would show deleted
@@ -140,10 +141,17 @@ Shape of a real stream (captured on 2026-10-06, `haiku`, `-p` with
 `user` carrying the `tool_result`, `rate_limit_event`, then `result` (with
 `result`, `permission_denials`, `usage`, `total_cost_usd`, `num_turns`).
 Right before the `tool_result` of every denied tool the CLI emits `system/
-permission_denied` (`tool_name`, `tool_use_id`, `message`). The server does
-not interpret any of it, except the `tool_use`/`tool_result` pair for the
-error log and the `result` line to know a turn is over. The mock
-(`mock/cli-mock.js`) reproduces this shape, including the denial messages.
+permission_denied` (`tool_name`, `tool_use_id`, `message`).
+`rate_limit_event` carries the subscription usage (seen on 2026-10-17, not in
+the docs read so far): `rate_limit_info` with `status` (`allowed`,
+`allowed_warning`, `rejected`), `rateLimitType`, `utilization` (0 to 1),
+`resetsAt` (seconds), `surpassedThreshold`, `isUsingOverage`, and
+`unifiedWindows` (`five_hour`, `seven_day`: `utilization`, `resetsAt`). The
+server does not interpret any of it, except the `tool_use`/`tool_result` pair
+for the error log, the `result` line to know a turn is over, and the last
+`rate_limit_info`, kept in memory for `GET /api/usage-limits`. The mock
+(`mock/cli-mock.js`) reproduces this shape, including the denial messages and
+a `rate_limit_event` with made-up figures.
 
 Invocation: `<cliCommand> -p <prompt> --output-format stream-json --verbose
 --model … --effort … --permission-mode …`, then `--resume <sessionId>` when

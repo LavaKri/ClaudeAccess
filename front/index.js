@@ -1013,7 +1013,49 @@ function showAssistantText (message) {
 	}
 }
 
+// Reset moment of a usage window: the time alone when it's today, else date
+// and time, in the browser's own locale.
+function formatResetTime (resetsAtSeconds) {
+	if (!resetsAtSeconds) return '';
+	let date = new Date(resetsAtSeconds * 1000);
+	let today = date.toDateString() === new Date().toDateString();
+	return today
+		? t('usage.resetsToday', { time: date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) })
+		: t('usage.resetsOn', { date: date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) });
+}
+
+// Subscription usage, from the CLI's rate_limit_event (status, overage, one
+// line per window: five_hour first, then seven_day and any other the CLI
+// reports). No aria-live: rewritten silently after each message, read on demand.
+function renderUsage (info) {
+	let area = document.getElementById('usageLines');
+	if (!info) {
+		area.replaceChildren(create('p', t('usage.none')));
+		return;
+	}
+	let knownStatus = ['allowed', 'allowed_warning', 'rejected'].includes(info.status);
+	let lines = [knownStatus
+		? t('usage.status.' + info.status, { threshold: Math.round((info.surpassedThreshold ?? 0) * 100) })
+		: t('usage.status.other', { status: info.status ?? '' })];
+	if (info.isUsingOverage) lines.push(t('usage.overage'));
+	let windows = Object.entries(info.unifiedWindows ?? {})
+		.sort(([a], [b]) => (a === 'five_hour' ? -1 : b === 'five_hour' ? 1 : 0));
+	for (let [name, window] of windows) {
+		let label = ['five_hour', 'seven_day'].includes(name) ? t('usage.window.' + name) : name;
+		lines.push(t('usage.windowLine', {
+			label,
+			percent: Math.round((window.utilization ?? 0) * 100),
+			reset: formatResetTime(window.resetsAt),
+		}));
+	}
+	area.replaceChildren(...lines.map(line => create('p', line)));
+}
+
 function onServerMessage (message) {
+	if (message.type === 'rate_limit_event') {
+		renderUsage(message.rate_limit_info);
+		return;
+	}
 	if (message.session_id) {
 		currentSessionId = message.session_id;
 		rememberLastSession(currentSessionId);
@@ -1755,6 +1797,9 @@ async function restoreLastState () {
 async function onWindowLoad () {
 	await initTheme();
 	await initI18n();
+
+	// Last values the server saw, so the region isn't empty until the next message.
+	fetch('/api/usage-limits').then(response => response.json()).then(renderUsage).catch(() => renderUsage(null));
 
 	let config = await fetchConfig();
 	PAGE_SIZE = config.messagesPerPage;
