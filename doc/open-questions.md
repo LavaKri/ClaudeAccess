@@ -13,8 +13,9 @@ Settled and moved to `claude-p-usage.md` (sections 4.B, 6 and 7): how a
 permission request is detected, the launch state of the "always allowed" list,
 and the fact that scoped rules such as `Bash(node *)` are honoured, from a
 `PermissionRequest` hook as well as from `--allowed-tools` at launch. Once
-"Always allow" sends a scoped rule instead of the bare tool name, the widening
-under "Accept edits" (a bare `Write` allow covering every path) goes away.
+"Always allow" offers a scoped rule (done 2026-10-17, see
+`claude-p-usage.md` 4.A), the widening under "Accept edits" only remains when
+the user picks "the whole tool".
 
 **Still open.**
 - Where the choices live: page memory for the session (today), the server per
@@ -23,8 +24,6 @@ under "Accept edits" (a bare `Write` allow covering every path) goes away.
   which the terminal would then honour too).
 - Showing the current list somewhere, beyond the line under the mode
   description.
-- How the app builds the scoped rule from a request (command prefix, folder
-  of a file): the CLI's suggestions are an exact command or a mode switch.
 
 **Next step.** Decide while implementing solution B of `claude-p-usage.md`.
 

@@ -92,11 +92,17 @@ front end aborts the CLI and shows the popup (`handleIfPermissionDenied`,
 (`resumeWithToolAllowed`). `permission_denials` at the end of the run is the
 fallback (`handleDeniedAtEnd`).
 
-**Proposed improvements.** Show `decision_reason` in the popup; replace
-`continue` with an explicit prompt ("The <Tool> tool is now allowed, redo the
-action that was denied"); make "Always allow" a scoped rule built by the app
-(`Bash(npm *)`, `Edit(<folder>/**)`) instead of the bare tool name, which
-today allows every command or path.
+**Done (2026-10-17): scoped rules.** "Always allow" is offered scoped
+(`Bash(<first word> *)`, `Edit(<folder of the file>/**)`) and for the whole
+tool; "Allow once" grants a rule for exactly the denied action
+(`Bash(<command>)`, `Edit(<file>)`), the bare tool name only for other
+tools. Rules are built in `front/permissionRules.js` and passed one per
+argument after `--allowed-tools`.
+
+**Still proposed.** Show `decision_reason` in the popup (absent from an
+ordinary `-p` denial: useful with B only); replace `continue` with an
+explicit prompt ("The <Tool> tool is now allowed, redo the action that was
+denied").
 
 - **Strengths.** Already built and working; documented options only; no
   waiting process; works in every mode, `dontAsk` included.
@@ -111,9 +117,23 @@ today allows every command or path.
   `Write`, `Edit`, `Bash`, `dontAsk` (2026-10-06). `--allowed-tools
   "Bash(node *)"` passed at launch lets `node` run without a request while
   `mkdir` still asks *(tested 2026-10-17, through the hook spike)*.
+  Rules at launch, without any hook, `haiku`, Windows, 10 runs
+  *(2026-10-17)*:
+  - `Bash(node *)` lets `node --version` run. For `node --version && git
+    --version` the CLI splits the command and denies with "This Bash command
+    contains multiple operations. The following part requires approval: git
+    --version": the app builds its rules from that part.
+  - `Bash(node -e "console.log((1+1))")`, the exact command with quotes and
+    parentheses, matches.
+  - `Edit(...)` rules cover `Write`. Relative `Edit(sub/**)` works. For an
+    absolute Windows path, `//c/Users/...` (lowercase drive, no colon) and
+    `C:/Users/...` work; the documented `//C:/Users/...` and `/C:/...` never
+    match. The app uses `//c/...`. `Edit(//c/.../sub/**)` does not allow a
+    write next to `sub`.
+  - Several rules as separate arguments after `--allowed-tools` work.
 - **Tests to do.** Explicit resume prompt against `continue`, several runs
-  each; whether `--allowed-tools` unblocks a tool in `dontAsk`; scoped `Edit`
-  path rules; the marker flow by hand in the browser.
+  each; whether `--allowed-tools` unblocks a tool in `dontAsk`; folder names
+  containing parentheses in an `Edit` rule; the scoped popup with JAWS.
 
 ### B. `PermissionRequest` hook of type `http`
 
@@ -184,8 +204,8 @@ WebSocket and answers with
   when it expires; server restart and browser tab closed while a request is
   pending; abort (kill) during a pending request; behaviour with `--resume`
   and `--fork-session`; `auto` and `bypassPermissions` modes; MCP tools;
-  requests raised inside a subagent; scoped `Edit` path rules; the popup with
-  JAWS.
+  requests raised inside a subagent; the popup with JAWS. (Scoped `Edit` path
+  rules: see A.)
 
 ### C. `PreToolUse` hook returning `defer`
 

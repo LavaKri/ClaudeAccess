@@ -77,11 +77,6 @@ the interface language ("0 message" in French, "0 messages" in English).
 - The workspace's last opened session is remembered with the entry and
   reopened at startup.
 - Title: custom title, else the AI title, else the start of the last reply.
-- Each session button reads "<title>, <date of the last message>, <N>
-  messages". N counts the messages its log would show: tool uses are left
-  out, and so are hidden messages unless "Show hidden messages" is on (section
-  4). Singular or plural follows the interface language's own rules ("0
-  message" in French, "0 messages" in English).
 
 ## 4. Messages
 
@@ -225,17 +220,30 @@ The CLI cannot pause for approval in `-p` mode, so the interface handles it.
 - While a question is open, whatever the cut CLI still sends (the denied
   `tool_result`, a second denial in the same step) is ignored, so it can't
   replace the question or rewrite the progress line.
-- A denial for a tool that is already allowed (always, or once for this run)
-  gets no popup, since allowing again can't help (protected path, deny rule):
-  an error is added to the log instead.
+- A denial for an action already granted (its exact rule or the whole tool,
+  always or for this run) gets no popup, since allowing again can't help
+  (protected path, deny rule): an error is added to the log instead. A broader
+  rule that didn't cover it (`Bash(npm *)` for a `git` command) still asks.
 
 **The popup**: line 1 "Claude wants to use the `<Tool>` tool"; line 2 the
 tool's main parameter (a file shown relative to the workspace, or its full path
 when outside it; a command; a search pattern; a URL…); a warning line when the
 file is outside the workspace (the path starts with a drive letter or
-separator); a last line with the raw CLI error text. Buttons: **Allow once**,
-**Always allow**, **Deny**. All lines are also mirrored into the live status
-area and focus goes to the first button. Escape does not close it.
+separator); a last line with the raw CLI error text. Buttons, built in
+`front/permissionRules.js`:
+- **Allow once**: a rule for exactly this action, `Bash(<command>)` or
+  `Edit(<file>)` (the bare tool name for other tools, or a multi-line command).
+- **Always allow "npm …" commands** (`Bash(npm *)`, from the command's first
+  word) or **Always allow edits in "src"** (`Edit(<folder of the file>/**)`;
+  "anywhere in the workspace" when the file is at its root). Only for `Bash` and
+  the file-editing tools. For a compound command the CLI names the part that
+  needs approval ("The following part requires approval: git --version") and
+  both rules are built from that part.
+- **Always allow the whole <Tool> tool**: the bare tool name.
+- **Deny**.
+
+All lines are also mirrored into the live status area and focus goes to the
+first button. Escape does not close it.
 
 **Lost popup.** The browser still closes a modal dialog by itself after
 repeated Escape presses, and until 2026-10-17 an Escape could also run the
@@ -249,10 +257,12 @@ takes the focus, and the status area says so; it reopens the same question.
 (before, the page kept ignoring the next runs' messages and could stay
 "working"); opening another session or workspace clears it too.
 
-**Granting**: the tool is added to `--allowed-tools` and the run resumed with
-`--resume` and the prompt "continue" (hidden from the log). "Always allow"
-keeps the tool for the current session only: it is allowed for every tool
-use, whatever the command or path, and never saved.
+**Granting**: the rule is added to `--allowed-tools` (one rule per argument)
+and the run resumed with `--resume` and the prompt "continue" (hidden from the
+log). The "once" rule only goes with that retry; an "always" rule is kept for
+the current session only, and never saved. Rule shapes were checked against
+the real CLI (see `claude-p-usage.md` 4.A): an absolute Windows path is written
+`//c/Users/...`.
 
 **Mode states and the "always allowed" list**: each permission mode has a
 known state for the main tools (`MODE_TOOL_STATES` in `front/runOptions.js`):
@@ -269,15 +279,15 @@ These states are display and comparison only: they are **not** sent to the
 CLI (a bare `--allowed-tools Write` would also approve writes outside the
 workspace, which "Accept edits" does not). The "always allowed" list, which is
 what is sent, is emptied on every change of permission mode and whenever a
-session or workspace is opened. When the user has allowed "always" a tool the
-mode does not allow, a line appears under the mode description, for example
-"Always allowed despite the mode: Write (the mode asks), Bash (the mode
-asks)." It is part of the select's description (`aria-describedby`), not a
-live region, and hidden when there is no such change. Where a mode allows a
-tool only inside the workspace ("Accept edits" for `Write` and `Edit`), an
-"always allow" is shown too, as "Write (the mode allows it only inside the
-workspace)", since it widens the tool to every path. The widening itself
-is not reduced: only scoped rules could do that (see `open-questions.md`).
+session or workspace is opened. When the user has allowed "always" something
+the mode does not allow, a line appears under the mode description, for example
+"Always allowed despite the mode: "npm …" commands (the mode asks), edits in
+"src" (the mode asks)." It is part of the select's description
+(`aria-describedby`), not a live region, and hidden when there is no such
+change. Under a mode that allows edits only inside the workspace ("Accept
+edits"), a folder rule inside the workspace adds nothing and isn't listed; a
+folder outside it, or the whole `Write`/`Edit` tool, is listed as "(the mode
+allows it only inside the workspace)", since it widens the tool.
 
 ## 8. Run options
 

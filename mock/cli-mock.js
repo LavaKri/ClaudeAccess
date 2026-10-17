@@ -31,7 +31,11 @@ function parseArgs (argv) {
 		else if (arg === '--permission-mode') args.permissionMode = argv[++i] ?? args.permissionMode;
 		else if (arg === '--resume') args.resume = argv[++i] ?? '';
 		else if (arg === '--fork-session') args.fork = true;
-		else if (arg === '--allowed-tools' || arg === '--allowedTools') args.allowedTools = (argv[++i] ?? '').split(',').filter(Boolean);
+		// Variadic, like the real option: every following argument up to the next
+		// option is a rule (the server passes one rule per argument).
+		else if (arg === '--allowed-tools' || arg === '--allowedTools') {
+			while (argv[i + 1] && !argv[i + 1].startsWith('--')) args.allowedTools.push(...argv[++i].split(',').filter(Boolean));
+		}
 		// --output-format/--verbose and anything else: accepted, ignored —
 		// this mock always emits the same stream-json shape regardless.
 	}
@@ -85,7 +89,12 @@ async function attemptTool (sessionId, messageId, model, allowedTools) {
 
 	await wait(randomDelay(100, 300));
 
-	let allowed = allowedTools.includes(TOOL_NAME);
+	// The bare tool name, the exact command, or a "Bash(<first word> *)" rule
+	// that matches it — the shapes ClaudeAccess sends.
+	let firstWord = TOOL_INPUT.command.split(/\s+/)[0];
+	let allowed = allowedTools.some(rule => rule === TOOL_NAME
+		|| rule === `${TOOL_NAME}(${TOOL_INPUT.command})`
+		|| rule === `${TOOL_NAME}(${firstWord} *)`);
 	if (!allowed) {
 		// The real CLI announces every denial with a dedicated system message right
 		// before the (error) tool_result, then lists it in the result's

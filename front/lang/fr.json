@@ -132,7 +132,12 @@
 	"tool.export.command": "Commande exécutée : {{command}}",
 	"tool.export.other": "Outil utilisé : {{tool}}",
 	"button.allowOnce": "Autoriser une fois",
-	"button.alwaysAllow": "Toujours autoriser",
+	"button.alwaysAllowScope": "Toujours autoriser les {{scope}}",
+	"button.alwaysAllowTool": "Toujours autoriser tout l'outil {{tool}}",
+	"permission.rule.commands": "commandes « {{prefix}} … »",
+	"permission.rule.folder": "modifications dans « {{folder}} »",
+	"permission.rule.workspace": "modifications dans tout l'espace de travail",
+	"permission.rule.tool": "tout l'outil {{tool}}",
 	"button.deny": "Refuser",
 
 	"tokenUsage.turn": "Ce tour : {{input}} tokens en entrée, {{output}} tokens en sortie, {{cacheCreation}} tokens de cache en écriture, {{cacheRead}} tokens de cache en lecture. ",

@@ -1,5 +1,6 @@
 import { create } from './DOMHelpers.js';
 import { initI18n, t, tCount, getLanguage } from './i18n.js';
+import { buildPermissionChoices } from './permissionRules.js';
 import { initTheme } from './theme.js';
 import { fetchConfig } from './ConfigClient.js';
 import { MODELS, EFFORTS, PERMISSION_MODES, toolStateInMode, populateSelect } from './runOptions.js';
@@ -65,7 +66,9 @@ let awaitingToolPermission = null; // { toolName, toolUseId }
 
 let currentCwd = '';
 let currentSessionId = null;
-let allowedTools = [];
+// "Always allow" answers of the open session ({ rule, tool, label,
+// insideWorkspace }), sent as --allowed-tools rules with every prompt.
+let alwaysRules = [];
 // Known working directories, loaded once so workspace buttons can show a
 // short label while still knowing the full path to switch to.
 // The user's own workspace list ({ path, name?, lastSessionId? }), kept on the
@@ -129,21 +132,25 @@ function updatePermissionModeDescription () {
 // starts the "always allowed" list from scratch: nothing is allowed beyond
 // what the mode itself does (MODE_TOOL_STATES), and nothing is ever saved.
 function resetAllowedTools () {
-	allowedTools = [];
+	alwaysRules = [];
 	updatePermissionChanges();
 }
 
 // Extra line under the mode description, only present when the user's "always
-// allow" answers go beyond the mode: it names each tool and what the mode
-// would have done with it. Part of the select's description (aria-describedby),
-// not a live region.
+// allow" answers go beyond the mode: it names each rule and what the mode
+// would have done with its tool. A folder rule inside the workspace adds
+// nothing to a mode that already allows edits there. Part of the select's
+// description (aria-describedby), not a live region.
 function updatePermissionChanges () {
 	let mode = document.getElementById('permissionModeSelect').value;
-	let beyond = allowedTools.filter(tool => toolStateInMode(mode, tool) !== 'allowed');
+	let beyond = alwaysRules.filter(entry => {
+		let state = toolStateInMode(mode, entry.tool);
+		return state !== 'allowed' && !(state === 'workspace' && entry.insideWorkspace);
+	});
 	let line = document.getElementById('permissionModeChanges');
 	line.textContent = beyond.length
 		? t('description.permissionChanges', {
-			tools: beyond.map(tool => `${tool} (${t('permission.state.' + toolStateInMode(mode, tool))})`).join(', '),
+			tools: beyond.map(entry => `${entry.label} (${t('permission.state.' + toolStateInMode(mode, entry.tool))})`).join(', '),
 		})
 		: '';
 	line.hidden = !beyond.length;
@@ -804,11 +811,21 @@ function showToolPermissionRequest (toolName, toolInput, toolUseId, errorText) {
 	if (external) extraLines.push(t('tool.request.externalFile'));
 	if (errorText) extraLines.push(t('tool.request.error', { error: errorText }));
 
-	renderQuestion(t('tool.request.tool', { tool }), [
-		{ label: t('button.allowOnce'), onClick: () => resumeWithToolAllowed(toolName, false) },
-		{ label: t('button.alwaysAllow'), onClick: () => resumeWithToolAllowed(toolName, true) },
-		{ label: t('button.deny'), onClick: denyToolPermission },
-	], extraLines);
+	// "Always" is offered scoped first (these commands, this folder), then for
+	// the whole tool; "once" only covers the exact denied action.
+	let choices = buildPermissionChoices(toolName, toolInput, errorText);
+	let options = [{ label: t('button.allowOnce'), onClick: () => resumeWithToolAllowed(choices.once, null) }];
+	if (choices.scoped) {
+		let scoped = scopedRuleEntry(toolName, choices.scoped);
+		options.push({ label: t('button.alwaysAllowScope', { scope: scoped.label }), onClick: () => resumeWithToolAllowed(choices.once, scoped) });
+	}
+	options.push({
+		label: t('button.alwaysAllowTool', { tool }),
+		onClick: () => resumeWithToolAllowed(choices.once, { rule: choices.whole, tool: toolName, label: t('permission.rule.tool', { tool }), insideWorkspace: false }),
+	});
+	options.push({ label: t('button.deny'), onClick: denyToolPermission });
+
+	renderQuestion(t('tool.request.tool', { tool }), options, extraLines);
 	playSound('ask.mp3');
 
 	setWorking(true);
@@ -822,15 +839,28 @@ function denyToolPermission () {
 	setStatus(t('status.responseFinished'));
 }
 
-// "Always allow" persists the tool for the rest of the session; "allow once"
-// only grants it for this immediate retry, without remembering it afterwards.
-async function resumeWithToolAllowed (toolName, permanent) {
+// Display entry of a scoped "always" rule (see buildPermissionChoices).
+function scopedRuleEntry (toolName, scoped) {
+	if (scoped.kind === 'commands') {
+		return { rule: scoped.rule, tool: toolName, label: t('permission.rule.commands', { prefix: scoped.value }), insideWorkspace: false };
+	}
+	let root = isWorkspaceRoot(scoped.value);
+	let label = root
+		? t('permission.rule.workspace')
+		: t('permission.rule.folder', { folder: toProjectRelativePath(scoped.value) });
+	return { rule: scoped.rule, tool: toolName, label, insideWorkspace: root || isInsideWorkspace(scoped.value) };
+}
+
+// `alwaysEntry` (null for "allow once") is kept for the rest of the session;
+// `onceRule` only covers this immediate retry. Both go with the retry.
+async function resumeWithToolAllowed (onceRule, alwaysEntry) {
 	awaitingToolPermission = null;
-	if (permanent && !allowedTools.includes(toolName)) {
-		allowedTools = [...allowedTools, toolName];
+	if (alwaysEntry && !alwaysRules.some(entry => entry.rule === alwaysEntry.rule)) {
+		alwaysRules = [...alwaysRules, alwaysEntry];
 		updatePermissionChanges();
 	}
-	let toolsForThisRun = allowedTools.includes(toolName) ? allowedTools : [...allowedTools, toolName];
+	let alwaysList = alwaysRules.map(entry => entry.rule);
+	let toolsForThisRun = alwaysList.includes(onceRule) ? alwaysList : [...alwaysList, onceRule];
 	runGrantedTools = toolsForThisRun;
 	hideQuestion();
 	setWorking(true);
@@ -870,6 +900,12 @@ function isInsideWorkspace (absolutePath) {
 	return normalizedPath.startsWith(normalizedCwd + '/');
 }
 
+function isWorkspaceRoot (absolutePath) {
+	if (!currentCwd) return false;
+	let normalize = p => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+	return normalize(absolutePath) === normalize(currentCwd);
+}
+
 // Classifies one tool_use block for the collapsible tool-use summary (see
 // buildToolDetails): a file read, a shell command, or anything else. "Read"
 // with a "file_path" input and "command" input (Bash, the only shape
@@ -892,12 +928,16 @@ function cacheToolUse (message) {
 	}
 }
 
-// Tools granted for the run in flight only ("allow once"): a denial for one of
-// them can't be fixed by allowing it again.
+// Rules sent with the run in flight (the "always" ones plus the "once" one).
 let runGrantedTools = [];
 
-function isToolAlreadyAllowed (toolName) {
-	return allowedTools.includes(toolName) || runGrantedTools.includes(toolName);
+// A denial the rule for exactly this action (or the whole tool) was already
+// granted for can't be fixed by allowing it again (protected path, deny rule...).
+// A broader rule that didn't cover it ("Bash(npm *)" for another command) still
+// gets the question.
+function isAlreadyGranted (toolName, toolInput, denialMessage) {
+	let granted = new Set([...alwaysRules.map(entry => entry.rule), ...runGrantedTools]);
+	return granted.has(toolName) || granted.has(buildPermissionChoices(toolName, toolInput, denialMessage).once);
 }
 
 // A permission request is recognised by the CLI's own marker, not by wording:
@@ -916,7 +956,7 @@ function handleIfPermissionDenied (message) {
 
 	let toolInfo = toolUseCache.get(message.tool_use_id);
 	let toolName = message.tool_name ?? toolInfo?.name ?? 'Tool';
-	if (isToolAlreadyAllowed(toolName)) {
+	if (isAlreadyGranted(toolName, toolInfo?.input, message.message)) {
 		// Allowing again would only loop (protected path, deny rule...): show the
 		// error instead of asking.
 		appendMessage('error', t('error.permissionStillDenied', { tool: toolName, error: message.message ?? '' }));
@@ -932,7 +972,7 @@ function handleIfPermissionDenied (message) {
 // permission_denials, but only once the run is over. Asks about the first one
 // that allowing could still fix.
 function handleDeniedAtEnd (message) {
-	let denial = (message.permission_denials ?? []).find(entry => !isToolAlreadyAllowed(entry.tool_name));
+	let denial = (message.permission_denials ?? []).find(entry => !isAlreadyGranted(entry.tool_name, entry.tool_input));
 	if (!denial) return false;
 	showToolPermissionRequest(denial.tool_name, denial.tool_input, denial.tool_use_id, t('tool.request.deniedAtEnd'));
 	return true;
@@ -1077,7 +1117,7 @@ async function onPromptSubmit (event) {
 	let runOptions = getRunOptionsForRun();
 	lastRequestedEffort = runOptions.effort;
 	await send({
-		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, fork, allowedTools,
+		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, fork, allowedTools: alwaysRules.map(entry => entry.rule),
 		...runOptions,
 	});
 }

@@ -275,7 +275,9 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	// `claude`'s actual invocation: prompt as a positional argument right
 	// after -p (confirmed against the real CLI — see CLAUDE.md/doc/plan.md),
 	// --output-format stream-json requires --verbose or the CLI refuses to
-	// start. --allowed-tools kept last since it's a variadic option.
+	// start. --allowed-tools kept last since it's a variadic option: each rule
+	// ("Bash(npm *)", "Edit(//c/dir/**)"...) is its own argument, as a rule can
+	// itself contain a comma.
 	let args = [
 		...baseArgs,
 		'-p', prompt,
@@ -289,7 +291,8 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	// New branch: the CLI copies the session's history under a new session id and
 	// leaves the original untouched. Meaningless without a session to resume.
 	if (sessionId && fork) args.push('--fork-session');
-	if (allowedTools?.length) args.push('--allowed-tools', allowedTools.join(','));
+	let rules = (Array.isArray(allowedTools) ? allowedTools : []).filter(rule => typeof rule === 'string' && rule);
+	if (rules.length) args.push('--allowed-tools', ...rules);
 
 	// stdin explicitly ignored: nothing is ever written to it, and leaving it
 	// as an open pipe makes the real `claude` binary wait a few seconds for

@@ -148,7 +148,8 @@ Invocation: `<cliCommand> -p <prompt> --output-format stream-json --verbose
 --model … --effort … --permission-mode …`, then `--resume <sessionId>` when
 there is one, `--fork-session` when `fork` is true and a session is given (the
 CLI then continues under a new session id and leaves the original untouched),
-and `--allowed-tools a,b` (kept last, it is variadic). No shell
+and `--allowed-tools <rule> <rule>…`, one rule per argument (kept last, it
+is variadic; a rule such as `Bash(node -e "a, b")` can contain a comma). No shell
 is involved, stdin is ignored, the working directory is the workspace.
 
 - One CLI child per WebSocket connection; a second `prompt` while a turn is in
@@ -159,7 +160,7 @@ is involved, stdin is ignored, the working directory is the workspace.
 - `abort` kills the child, or cancels a run that is still starting.
 - In `-p` mode the CLI cannot pause for a permission: a tool that isn't
   allowed comes back as an error and the front end decides what to do (it
-  resumes with `--resume` and the tool added to `--allowed-tools`). See the
+  resumes with `--resume` and a rule added to `--allowed-tools`). See the
   permission section of the interface spec.
 
 ### Tool error log

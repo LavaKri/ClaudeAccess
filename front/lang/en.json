@@ -132,7 +132,12 @@
 	"tool.export.command": "Command run: {{command}}",
 	"tool.export.other": "Tool used: {{tool}}",
 	"button.allowOnce": "Allow once",
-	"button.alwaysAllow": "Always allow",
+	"button.alwaysAllowScope": "Always allow {{scope}}",
+	"button.alwaysAllowTool": "Always allow the whole {{tool}} tool",
+	"permission.rule.commands": "\"{{prefix}} …\" commands",
+	"permission.rule.folder": "edits in \"{{folder}}\"",
+	"permission.rule.workspace": "edits anywhere in the workspace",
+	"permission.rule.tool": "the whole {{tool}} tool",
 	"button.deny": "Deny",
 
 	"tokenUsage.turn": "This turn: {{input}} input tokens, {{output}} output tokens, {{cacheCreation}} cache-write tokens, {{cacheRead}} cache-read tokens. ",
