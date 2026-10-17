@@ -106,8 +106,10 @@ removed on 2026-10-06, see `spec-interface.md`.)
   character becomes `-`.
 - A session is parsed from its JSONL: `ai-title` / `custom-title` for the
   title (custom wins, then AI title, then the last reply's start), per-entry
-  `usage` summed into a token total, tool uses turned into `{ kind, label }`
-  entries (file read, command, other).
+  `usage` summed into a token total, tool uses returned as `{ name, input }`,
+  the input cut down to the fields the browser describes (paths, command,
+  pattern, query, URL, description, skill; a todo list as its length only), so
+  a written file's content or an edit's text never travels.
 - **Run options**: the latest `model` (full id, `<synthetic>` ignored),
   `effort` and `permissionMode` recorded on the entries are returned as
   `runOptions`.

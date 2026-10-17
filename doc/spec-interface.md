@@ -63,8 +63,8 @@ order entries were added, paginated with Newer / Older buttons.
   full path is the tooltip.
 - Migration: when the server has no list yet, the first load builds it from
   what the browser used to keep (known folders plus manually added, minus
-  hidden, custom names, last workspace and session). The old localStorage keys
-  are left in place, unused.
+  hidden, custom names, last workspace and session). Every load then deletes
+  whatever older versions left in the browser (`claudeAccessible.*` keys).
 
 ## 3. Sessions
 
@@ -98,7 +98,9 @@ the interface language ("0 message" in French, "0 messages" in English).
   rendered from Markdown through a safe renderer (model text is never trusted
   as markup) and headed with the model and effort used.
 - Tool uses are collapsed into a details/summary and don't count as a page
-  slot.
+  slot. Files read, commands run, then other tools with their main parameter
+  ("Grep foo", "Edit src/a.js"), described by the same rule as the progress
+  line and the permission popup, live and in a reloaded history alike.
 - Pagination: first / previous / page select / next / last, over
   `messagesPerPage` groups. The page picker is a select, not a number input,
   so JAWS's "next edit field" key goes straight to the prompt.
@@ -301,12 +303,20 @@ clicked:
   `permission_denied` that follows (`decision_reason_type: "hook"`) is
   ignored, and so is that tool call in the result's `permission_denials`. In method A, the explanation becomes the next prompt instead.
 - **Abort** while a request waits: the server denies it and stops the CLI.
-- **Time to answer over** (`permission_request_expired`): the status area
-  says so ("Time to answer is over: Claude got a denial and has been stopped.
-  Your answer will resume it."), the page cuts the CLI as method A does, and
-  the popup stays: answering it now resumes the session the method A way.
+- **Time to answer over** (`permission_request_expired`): the notice ("Time
+  to answer is over: Claude got a denial. Your answer will resume it.") goes
+  inside the popup as an alert, with the question sound (the status area,
+  outside the modal popup, isn't read while it is open), and stays in the
+  question if it is shown again. The CLI is not cut: it finishes on its own
+  (the model usually says it needs the permission), so its denial is saved in
+  the session. The popup stays: answering it resumes the session the method A
+  way (stopping the run first if it isn't over yet).
 - In `dontAsk` mode the hook is never called: denials keep method A's
   handling.
+
+Checked by hand with NVDA on 2026-10-18: "Deny and explain" (text field and
+denial), allow once, no second popup after a denial. Not yet by hand:
+"always", Abort and expiry in the browser, JAWS.
 
 **Mode states and the "always allowed" list**: each permission mode has a
 known state for the main tools (`MODE_TOOL_STATES` in `front/runOptions.js`):
@@ -377,6 +387,6 @@ set), two sounds: completion and "a question is waiting".
 
 ## 11. What stays in the browser
 
-Only the legacy workspace keys left after migration. The workspace list,
-custom names, last workspace/session and the run options per session live on
-the server.
+Nothing: older versions' keys are deleted on load (see section 2). The
+workspace list, custom names, last workspace/session and the run options per
+session live on the server; "always allow" rules only in page memory.

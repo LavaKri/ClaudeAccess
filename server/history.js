@@ -147,34 +147,20 @@ function extractText (content) {
 	return '';
 }
 
-// Strips cwd from an absolute path read by a tool, so a resumed session's
-// "files read" list shows a path relative to the project root, same as the
-// live stream does — see front/index.js's toProjectRelativePath(). Falls back
-// to the original path unchanged if it isn't actually under cwd, or if cwd
-// isn't known (listSessions() doesn't need it for anything else).
-function toProjectRelativePath (absolutePath, cwd) {
-	if (!cwd) return absolutePath;
-	// Workspace paths and a tool's own absolute paths don't necessarily use the
-	// same slash style (e.g. a workspace added as "C:/foo/bar" vs. a tool
-	// reporting "C:\foo\bar\file.cpp") — compare on a forward-slash-normalized
-	// form so the prefix still matches, but keep the original separators in the
-	// returned relative path (whatever the tool itself used).
-	let normalize = p => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
-	let normalizedCwd = normalize(cwd);
-	if (normalize(absolutePath).slice(0, normalizedCwd.length) !== normalizedCwd) return absolutePath;
-	return absolutePath.slice(cwd.replace(/[\\/]+$/, '').length).replace(/^[\\/]+/, '');
-}
+// A tool call's input as sent to the browser, which describes it with the same
+// rule as the live stream (describeTool in front/index.js). Only the fields
+// describeTool reads are kept (same list as its TOOL_TEXT_FIELDS, plus the
+// paths), so a written file's content or an edit's text never travels; a todo
+// list only keeps its length, shown as a count.
+const TOOL_INPUT_FIELDS = ['file_path', 'notebook_path', 'command', 'pattern', 'query', 'url', 'description', 'skill'];
 
-// Same classification as the live stream's cacheToolUse() in front/index.js
-// (Read w/ file_path -> file, "command" input -> command, else the tool's own
-// name) — kept as a small server-side duplicate rather than shared code,
-// consistent with this project's no-bundler/no-shared-module setup.
-function classifyToolUse (name, input, cwd) {
-	if (name === 'Read' && typeof input?.file_path === 'string') {
-		return { kind: 'file', label: toProjectRelativePath(input.file_path, cwd) };
+function compactToolInput (input) {
+	let compact = {};
+	for (let key of TOOL_INPUT_FIELDS) {
+		if (typeof input?.[key] === 'string') compact[key] = input[key];
 	}
-	if (typeof input?.command === 'string') return { kind: 'command', label: input.command };
-	return { kind: 'other', label: name };
+	if (Array.isArray(input?.todos)) compact.todos = Array(input.todos.length).fill(null);
+	return compact;
 }
 
 async function readSessionFile (filePath, cwd) {
@@ -265,7 +251,7 @@ async function readSessionFile (filePath, cwd) {
 		// the text extraction below.
 		let toolUse = entry.type === 'assistant' && (entry.message?.content ?? []).find(item => item.type === 'tool_use');
 		if (toolUse) {
-			messages.push({ role: 'tool', tool: classifyToolUse(toolUse.name, toolUse.input, cwd) });
+			messages.push({ role: 'tool', tool: { name: toolUse.name, input: compactToolInput(toolUse.input) } });
 			continue;
 		}
 

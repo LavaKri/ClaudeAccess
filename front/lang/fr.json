@@ -154,7 +154,7 @@
 	"button.denyExplain": "Refuser et expliquer…",
 	"dialog.denyExplainTitle": "Refuser et expliquer",
 	"dialog.denyExplainLabel": "Ce que Claude doit faire à la place :",
-	"status.permissionExpired": "Délai de réponse dépassé : Claude a reçu un refus et a été interrompu. Votre réponse le relancera.",
+	"status.permissionExpired": "Délai de réponse dépassé : Claude a reçu un refus. Votre réponse le relancera.",
 
 	"tokenUsage.turn": "Ce tour : {{input}} tokens en entrée, {{output}} tokens en sortie, {{cacheCreation}} tokens de cache en écriture, {{cacheRead}} tokens de cache en lecture. ",
 	"tokenUsage.total": "Total de la session : {{input}} tokens en entrée, {{output}} tokens en sortie, {{cacheCreation}} tokens de cache en écriture, {{cacheRead}} tokens de cache en lecture.",

@@ -19,7 +19,8 @@ import MarkdownIt from './vendor/markdown-it.esm.min.mjs';
 const md = new MarkdownIt();
 
 // Legacy browser-side workspace keys: only read once, by
-// migrateLegacyWorkspaces(), to fill the server-side workspace list.
+// migrateLegacyWorkspaces(), to fill the server-side workspace list, then
+// deleted with every other "claudeAccessible." key (see loadWorkspaces).
 const LAST_WORKSPACE_KEY = 'claudeAccessible.lastWorkspace';
 const LAST_SESSION_KEY = 'claudeAccessible.lastSessionId';
 const WORKSPACE_NAMES_KEY = 'claudeAccessible.workspaceNames';
@@ -458,7 +459,9 @@ function setProgressAnnounce (enabled) {
 }
 
 // Single place that turns a tool_use (name + input) into display data, shared
-// by the progress line and the permission request. Tool names are kept as the
+// by the progress line, the permission request and the tool-use details (live
+// and reloaded: server/history.js's TOOL_INPUT_FIELDS must list the same
+// fields). Tool names are kept as the
 // CLI reports them (not translated). `text` is the tool's main parameter:
 // a file (project-relative if inside the workspace, otherwise the full path
 // with its volume), a command, a search pattern, a URL... `external` is true
@@ -847,6 +850,7 @@ function showToolPermissionRequest (toolName, toolInput, toolUseId, errorText, h
 }
 
 function grantToolPermission (onceRule, alwaysEntry) {
+	stopExpiredRun();
 	if (awaitingToolPermission?.hookRequestId) answerHookRequest(true, alwaysEntry);
 	else resumeWithToolAllowed(onceRule, alwaysEntry);
 }
@@ -855,6 +859,7 @@ function grantToolPermission (onceRule, alwaysEntry) {
 // Method B sends it with the denial, and the waiting CLI goes on with it.
 // Method A has no CLI left to tell: the explanation becomes the next prompt.
 function refuseToolPermission (explanation) {
+	stopExpiredRun();
 	if (awaitingToolPermission?.hookRequestId) {
 		answerHookRequest(false, null, explanation);
 		return;
@@ -898,14 +903,39 @@ function answerHookRequest (allow, alwaysEntry, explanation = null) {
 	});
 }
 
-// Method B request the CLI stopped waiting for (its timeout): it has denied
-// the tool and carries on. Cut it, as method A does at a denial, and keep the
-// question: answering it now resumes the session the method A way.
+// Method B request the CLI stopped waiting for (its timeout): it denies the
+// tool, the model usually says it needs the permission, and the run ends. The
+// question stays: answering it resumes the session the method A way. The CLI
+// is left to finish on its own: checked on 2026-10-18, a CLI cut at that point
+// (even right at its denial) has already saved the tool call but not its
+// result, so the resumed model sees an interrupted call and may not retry it;
+// left to finish, the denial is saved and the model retries.
 function onHookRequestExpired (message) {
 	if (awaitingToolPermission?.hookRequestId !== message.requestId) return;
 	awaitingToolPermission.hookRequestId = null;
+	awaitingToolPermission.expired = true;
+	announceInQuestion(t('status.permissionExpired'));
+}
+
+// An answer given before the CLI's run is over: the resume needs it stopped.
+function stopExpiredRun () {
+	if (!awaitingToolPermission?.expired || awaitingToolPermission.runOver) return;
+	awaitingToolPermission.runOver = true;
 	send({ type: 'abort' });
-	setStatus(t('status.permissionExpired'));
+}
+
+// The status area is outside the modal popup, so the screen reader ignores it
+// while the popup is open: a notice about the open question goes inside it,
+// as an alert, and stays in the question if it is shown again.
+function announceInQuestion (text) {
+	setStatus(text);
+	if (lastQuestion) lastQuestion.extraLines = [text, ...lastQuestion.extraLines];
+	let dialog = document.getElementById('questionArea');
+	if (!dialog.open) return;
+	let notice = create('p', text);
+	notice.setAttribute('role', 'alert');
+	dialog.prepend(notice);
+	playSound('ask.mp3');
 }
 
 function denyToolPermission () {
@@ -982,24 +1012,22 @@ function isWorkspaceRoot (absolutePath) {
 	return normalize(absolutePath) === normalize(currentCwd);
 }
 
-// Classifies one tool_use block for the collapsible tool-use summary (see
-// buildToolDetails): a file read, a shell command, or anything else. "Read"
-// with a "file_path" input and "command" input (Bash, the only shape
-// confirmed so far — see the mock) are the two special-cased shapes; anything
-// else falls back to just the tool's name.
-function classifyToolUse (name, input) {
-	if (name === 'Read' && typeof input?.file_path === 'string') {
-		return { kind: 'file', label: toProjectRelativePath(input.file_path) };
-	}
+// One tool call in the collapsible tool-use summary (see buildToolDetails),
+// described by describeTool like the progress line and the popup, live and in
+// a reloaded history alike: a file read, a command, or any other tool with its
+// main parameter.
+function toolDetailEntry (name, input) {
+	let { tool, text } = describeTool(name, input);
+	if (name === 'Read' && text) return { kind: 'file', label: text };
 	if (typeof input?.command === 'string') return { kind: 'command', label: input.command };
-	return { kind: 'other', label: name };
+	return { kind: 'other', label: text ? `${tool} ${text}` : tool };
 }
 
 function cacheToolUse (message) {
 	for (let item of message.message?.content ?? []) {
 		if (item.type === 'tool_use') {
 			toolUseCache.set(item.id, { name: item.name, input: item.input });
-			appendMessage('tool', classifyToolUse(item.name, item.input));
+			appendMessage('tool', toolDetailEntry(item.name, item.input));
 		}
 	}
 }
@@ -1031,8 +1059,9 @@ function handleIfPermissionDenied (message) {
 		if (message.tool_use_id) hookDeniedToolUseIds.add(message.tool_use_id);
 		return true;
 	}
-	// A question is already open (several denials in the same step): the first
-	// one is the one asked about.
+	// A question is already open (several denials in the same step, or the
+	// CLI's own denial of an expired method B request): the first one is the
+	// one asked about.
 	if (awaitingToolPermission) return true;
 
 	let toolInfo = toolUseCache.get(message.tool_use_id);
@@ -1183,8 +1212,15 @@ function onServerMessage (message) {
 	}
 	if (message.type === 'result') {
 		// This is the "aborted" result from our own abort() call while putting
-		// up the permission prompt above: ignore it, the prompt stays showing.
-		if (awaitingToolPermission) return;
+		// up the permission prompt above, or the end of the run of an expired
+		// method B request: the prompt stays showing.
+		if (awaitingToolPermission) {
+			if (awaitingToolPermission.expired) {
+				awaitingToolPermission.runOver = true;
+				recordTokenUsage(message.usage);
+			}
+			return;
+		}
 		setWorking(false);
 		hideQuestion();
 		if (syntheticTurn) {
@@ -1321,15 +1357,15 @@ const ROLE_TO_PREFIX = { user: 'you', assistant: 'claude', tool: 'tool', notific
 // live stream (including the same exact-repeat dedup — real session files
 // have been seen to carry back-to-back assistant entries with identical text,
 // same as a retried tool_use during a live run), so a resumed history reads
-// the same way. "tool" entries carry a `tool` field ({ kind, label } — see
-// history.js's classifyToolUse()) instead of `text`. Entries flagged `hidden`
+// the same way. "tool" entries carry a `tool` field ({ name, input }, see
+// history.js's compactToolInput()) instead of `text`. Entries flagged `hidden`
 // (noise, see history.js) are left out unless hidden messages are shown.
 function groupMessages (rawMessages) {
 	let groups = [];
 	for (let message of rawMessages) {
 		if (message.hidden && !showHiddenMessages) continue;
 		let prefix = ROLE_TO_PREFIX[message.role] || 'claude';
-		let entry = prefix === 'tool' ? message.tool : message.text;
+		let entry = prefix === 'tool' ? toolDetailEntry(message.tool.name, message.tool.input) : message.text;
 		let last = groups[groups.length - 1];
 		let mergingIntoLast = Boolean(last) && last.prefix === prefix;
 		let lastEntry = mergingIntoLast ? last.texts[last.texts.length - 1] : undefined;
@@ -1697,11 +1733,20 @@ async function migrateLegacyWorkspaces () {
 	return store;
 }
 
+// Everything older versions kept in this browser: nothing reads it any more
+// once the server has the workspace list.
+function removeLegacyBrowserData () {
+	for (let key of Object.keys(localStorage)) {
+		if (key.startsWith('claudeAccessible.')) localStorage.removeItem(key);
+	}
+}
+
 // Loads the user's workspace list from the server (migrating the legacy
 // browser-side data the first time, when the server has no list yet).
 async function loadWorkspaces () {
 	let store = await fetchWorkspaceStore();
 	if (!store.exists) store = await migrateLegacyWorkspaces();
+	removeLegacyBrowserData();
 	workspaces = store.workspaces;
 	lastWorkspace = store.lastWorkspace;
 	workspacesPage = 0;

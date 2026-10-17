@@ -157,6 +157,10 @@ the resume unnecessary anyway.
 **Done (2026-10-17)** as the "Make Claude wait for the answer" option, with
 "Deny and explain": see `spec-server.md` 5 and `spec-interface.md` 7.
 Method A stays as the fallback (`dontAsk` mode, expired requests).
+Checked by hand with NVDA on 2026-10-18: the options (method, time to
+answer), "Deny and explain" (text field, the model gets the text), allow
+once, and no second popup for a denial already answered (fixed on 2026-10-17: the result's
+`permission_denials` repeats it).
 
 **How it works.** Each spawn gets `--settings` with a `PermissionRequest` hook
 pointing at a ClaudeAccess route, e.g.
@@ -230,11 +234,22 @@ WebSocket and answers with
     to approve and the run ends normally (`success`). So an expired request
     can't be told apart from a plain denial in the stream, and a late answer
     can only go through A (resume with the rule granted).
+  - Cutting after an expiry *(2026-10-18, `haiku`, timeout 15 s)*: a CLI
+    killed when the hook connection closes, at its denial marker, or at the
+    streamed `tool_result` has already saved the `tool_use` but not its
+    result: on resume the call shows as interrupted and the model may move on
+    to something else (seen: it went back to earlier work instead of writing
+    the file). Method A is unaffected: cut at the marker, without a hook, not
+    even the `tool_use` is saved, so the model redoes the request. Left to
+    finish (about 3 s), the denial is saved, and `continue` with the tool
+    allowed writes the file. So ClaudeAccess no longer cuts the CLI at expiry.
 - **Tests to do.** A wait close to a long timeout (an hour), whether a maximum
-  exists; server restart and browser tab closed while a request is
-  pending; abort (kill) during a pending request; behaviour with `--resume`
-  and `--fork-session`; `auto` and `bypassPermissions` modes; MCP tools;
-  requests raised inside a subagent; the popup with JAWS. (Scoped `Edit` path
+  exists; server restart while a request is pending; with the real CLI and by
+  hand: abort and browser tab closed while a request is pending (both checked
+  with the mock only), expiry; behaviour with `--resume` and
+  `--fork-session`; `auto` and `bypassPermissions` modes; MCP tools;
+  requests raised inside a subagent; "always" and abort with NVDA,
+  the whole popup with JAWS. (Scoped `Edit` path
   rules: see A.)
 
 ### C. `PreToolUse` hook returning `defer`
@@ -406,4 +421,5 @@ ever published.
   open question (stdio protocol) is now solution E.
 - **Scoped rules are honoured** both from the hook (`updatedPermissions`) and
   from `--allowed-tools` at launch (section 4.B tests). What remains open is
-  where "always" choices are kept (`open-questions.md`, section 1).
+  where "always" choices are kept: settled on 2026-10-18, page memory for the
+  current browsing session only (`plan.md`).
