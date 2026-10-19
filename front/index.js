@@ -22,6 +22,7 @@ const LAST_WORKSPACE_KEY = 'claudeAccessible.lastWorkspace';
 const LAST_SESSION_KEY = 'claudeAccessible.lastSessionId';
 const WORKSPACE_NAMES_KEY = 'claudeAccessible.workspaceNames';
 const EXTRA_WORKSPACES_KEY = 'claudeAccessible.extraWorkspaces';
+const HIDDEN_WORKSPACES_KEY = 'claudeAccessible.hiddenWorkspaces';
 const RUN_OPTIONS_PREFIX = 'claudeAccessible.runOptions.';
 const LAST_RUN_OPTIONS_KEY = 'claudeAccessible.lastRunOptions';
 
@@ -164,15 +165,88 @@ function pageCount () {
 	return Math.max(1, Math.ceil(countablePageGroups() / PAGE_SIZE));
 }
 
+// Page numbers to show as buttons, null standing for an ellipsis: always the
+// first and last pages, plus the pages right before and after the current
+// one. A gap of a single page shows that page's number instead of an
+// ellipsis, since "1 2 3" is no longer than "1 … 3".
+function paginationItems (current, total) {
+	let pages = [...new Set([1, current - 1, current, current + 1, total])]
+		.filter(page => page >= 1 && page <= total)
+		.sort((a, b) => a - b);
+	let items = [];
+	let previous = 0;
+	for (let page of pages) {
+		if (page - previous === 2) items.push(previous + 1);
+		else if (page - previous > 2) items.push(null);
+		items.push(page);
+		previous = page;
+	}
+	return items;
+}
+
+// The page-number buttons as last rendered ("current/total"): they're only
+// rebuilt when that changes, so a message streaming in doesn't destroy a
+// button the user is sitting on.
+let renderedPaginationState = '';
+
+// No edit field here (only buttons, plus "Go to page" opening a dialog), so
+// the screen reader's "next edit field" key always lands on the prompt; the
+// whole block is hidden while there's only one page.
 function updatePaginationControls () {
 	let pages = pageCount();
-	document.getElementById('pageInput').value = currentPage;
-	document.getElementById('pageInput').max = pages;
-	document.getElementById('totalPagesLabel').textContent = t('label.totalPages', { count: pages });
-	document.getElementById('firstPageButton').disabled = currentPage <= 1;
-	document.getElementById('prevPageButton').disabled = currentPage <= 1;
-	document.getElementById('nextPageButton').disabled = currentPage >= pages;
-	document.getElementById('lastPageButton').disabled = currentPage >= pages;
+	let focused = document.activeElement;
+	document.getElementById('paginationArea').hidden = pages <= 1;
+
+	let state = `${currentPage}/${pages}`;
+	if (state !== renderedPaginationState) {
+		renderedPaginationState = state;
+		let focusedPage = focused?.closest?.('#pageButtons') ? Number(focused.dataset.page) : null;
+		let container = document.getElementById('pageButtons');
+		container.textContent = '';
+		for (let page of paginationItems(currentPage, pages)) {
+			if (page === null) {
+				container.appendChild(create('span', '…'));
+				continue;
+			}
+			let button = create('button', String(page));
+			button.type = 'button';
+			button.dataset.page = page;
+			button.setAttribute('aria-label', t('aria.pageButton', { page }));
+			if (page === currentPage) button.setAttribute('aria-current', 'page');
+			button.addEventListener('click', () => goToPage(page));
+			container.appendChild(button);
+		}
+		// Rebuilding destroyed the focused button: put focus back on the same
+		// page number if it's still shown (a re-render while the user sits on
+		// it), else on the current page (the button clicked became current).
+		if (focusedPage !== null) {
+			let target = container.querySelector(`button[data-page="${focusedPage}"]`)
+				|| container.querySelector('button[aria-current="page"]');
+			target?.focus();
+		}
+	}
+
+	let prevButton = document.getElementById('prevPageButton');
+	let nextButton = document.getElementById('nextPageButton');
+	prevButton.disabled = currentPage <= 1;
+	nextButton.disabled = currentPage >= pages;
+	// A disabled button can't keep focus: on reaching the first/last page,
+	// move it to the current page's button instead of losing it.
+	if ((focused === prevButton || focused === nextButton) && focused.disabled) {
+		document.querySelector('#pageButtons button[aria-current="page"]')?.focus();
+	}
+}
+
+async function onGoToPageClick () {
+	let total = pageCount();
+	let value = await showInputDialog(t('dialog.goToPageTitle'), t('dialog.goToPageLabel', { total }), String(currentPage));
+	if (value === null) return;
+	let page = Number(value.trim());
+	if (!Number.isInteger(page) || page < 1 || page > total) {
+		setStatus(t('status.invalidPage', { total }));
+		return;
+	}
+	goToPage(page);
 }
 
 async function copyTextToClipboard (text) {
@@ -448,10 +522,32 @@ function suggestPrompt (suggestion) {
 // While claude is working (including while a permission request is pending):
 // the prompt field is read-only and Send is disabled, so the user can't start
 // a second run concurrently; Abort is only enabled then.
+let isWorking = false;
+
 function setWorking (working) {
+	isWorking = working;
 	document.getElementById('prompt').readOnly = working;
 	document.getElementById('sendButton').disabled = working;
 	document.getElementById('abortButton').disabled = !working;
+}
+
+// The server kills a running claude process as soon as its connection drops,
+// so no result will ever come back for it: unlock the UI and say so, rather
+// than leaving Send disabled forever. A pending permission question isn't
+// affected (its run already ended), and an idle drop needs no announcement —
+// WsClient reconnects on its own, and before the next send at the latest.
+function onConnectionLost () {
+	if (!isWorking || awaitingToolPermission) return;
+	setWorking(false);
+	setStatus(t('status.connectionLost'));
+	appendMessage('error', t('status.connectionLost'));
+}
+
+// The payload couldn't be sent at all (server unreachable even after a
+// reconnection attempt): nothing is running, so unlock the UI.
+function onSendFailed () {
+	setWorking(false);
+	setStatus(t('status.connectionFailed'));
 }
 
 function hideQuestion () {
@@ -574,8 +670,9 @@ function showConfirmDialog (title, message) {
 	});
 }
 
-// Reusable modal move flow: shows a title, a <select> of every known
-// workspace except the session's current one, and OK/Annuler/Fermer.
+// Reusable modal move flow: shows a title, a <select> of every workspace
+// currently shown in the list (hidden ones excluded unless "show hidden" is
+// on) except the session's current one, and OK/Annuler/Fermer.
 // Resolves with the chosen workspace path, or null if cancelled/closed.
 function showMoveSessionDialog (currentWorkspacePath) {
 	return new Promise(resolve => {
@@ -601,7 +698,7 @@ function showMoveSessionDialog (currentWorkspacePath) {
 		label.setAttribute('for', fieldId);
 		let field = document.createElement('select');
 		field.id = fieldId;
-		for (let workspace of workspaces) {
+		for (let workspace of visibleWorkspaces()) {
 			if (workspace.path === currentWorkspacePath) continue;
 			let option = document.createElement('option');
 			option.value = workspace.path;
@@ -680,11 +777,15 @@ async function resumeWithToolAllowed (toolName, permanent) {
 	setWorking(true);
 	setStatus(t('status.working'));
 	// Hidden from the message log: this isn't a message the user actually typed.
-	await send({
-		type: 'prompt', prompt: 'continue', cwd: currentCwd,
-		sessionId: currentSessionId, allowedTools: toolsForThisRun,
-		...getRunOptions(),
-	});
+	try {
+		await send({
+			type: 'prompt', prompt: 'continue', cwd: currentCwd,
+			sessionId: currentSessionId, allowedTools: toolsForThisRun,
+			...getRunOptions(),
+		});
+	} catch {
+		onSendFailed();
+	}
 }
 
 // Strips currentCwd from an absolute path read by a tool, so the "files read"
@@ -734,7 +835,8 @@ function handleIfToolDenied (message) {
 		if (item.type === 'tool_result' && item.is_error) {
 			let toolInfo = toolUseCache.get(item.tool_use_id);
 			showToolPermissionRequest(toolInfo?.name ?? 'Tool', toolInfo?.input, item.tool_use_id);
-			send({ type: 'abort' });
+			// Nothing to do if this fails: a lost connection ends the run anyway.
+			send({ type: 'abort' }).catch(() => {});
 			return true;
 		}
 	}
@@ -804,20 +906,31 @@ async function onPromptSubmit (event) {
 	event.preventDefault();
 	if (!text.trim()) return;
 
-	promptField.value = '';
-	appendMessage('you', text);
-
-	if (!currentSessionId) awaitingFreshTitle = true;
 	setWorking(true);
 	setStatus(t('status.working'));
-	await send({
-		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, allowedTools,
-		...getRunOptions(),
-	});
+	// Only cleared from the field (and added to the log) once actually sent,
+	// so a failed send leaves the prompt in place, ready to retry.
+	try {
+		await send({
+			type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, allowedTools,
+			...getRunOptions(),
+		});
+	} catch {
+		onSendFailed();
+		return;
+	}
+	promptField.value = '';
+	appendMessage('you', text);
+	if (!currentSessionId) awaitingFreshTitle = true;
 }
 
 async function onAbortClick () {
-	await send({ type: 'abort' });
+	try {
+		await send({ type: 'abort' });
+	} catch {
+		// Unreachable server: the connection drop already ended the run.
+		onSendFailed();
+	}
 }
 
 // Resets the conversation view for a brand new (or newly loaded) session,
@@ -1072,7 +1185,58 @@ function updateWorkspaceAriaCurrent () {
 }
 
 function normalizeWorkspacePath (workspacePath) {
-	return workspacePath.replace(/[\\/]+$/, '').toLowerCase();
+	return workspacePath.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+}
+
+// Hiding a workspace only removes it from this list (a purely client-side
+// preference, stored by normalized path): nothing is deleted on disk, and
+// "Show hidden workspaces" brings it back.
+function loadHiddenWorkspaces () {
+	try {
+		return JSON.parse(localStorage.getItem(HIDDEN_WORKSPACES_KEY)) || [];
+	} catch {
+		return [];
+	}
+}
+
+function isWorkspaceHidden (workspacePath) {
+	return loadHiddenWorkspaces().includes(normalizeWorkspacePath(workspacePath));
+}
+
+function setWorkspaceHidden (workspacePath, hidden) {
+	let key = normalizeWorkspacePath(workspacePath);
+	let keys = loadHiddenWorkspaces().filter(k => k !== key);
+	if (hidden) keys.push(key);
+	localStorage.setItem(HIDDEN_WORKSPACES_KEY, JSON.stringify(keys));
+}
+
+let showHiddenWorkspaces = false;
+
+function visibleWorkspaces () {
+	return showHiddenWorkspaces ? workspaces : workspaces.filter(workspace => !isWorkspaceHidden(workspace.path));
+}
+
+// The list is rebuilt from scratch, which destroys the button that was just
+// clicked (and with "show hidden" off, the workspace itself is gone from the
+// list): focus goes back to that workspace's own button if it's still shown,
+// else to the first one shown, else to the "show hidden" toggle — never left
+// on a removed element.
+function toggleWorkspaceHidden (workspacePath) {
+	let hidden = !isWorkspaceHidden(workspacePath);
+	setWorkspaceHidden(workspacePath, hidden);
+	renderWorkspacePage();
+	let buttons = [...document.querySelectorAll('#workspaceList button[data-workspace-path]')];
+	let target = buttons.find(button => button.dataset.workspacePath === workspacePath)
+		|| buttons[0]
+		|| document.getElementById('showHiddenWorkspacesButton');
+	target.focus();
+	setStatus(t(hidden ? 'status.workspaceHidden' : 'status.workspaceUnhidden', { name: workspaceLabel(workspacePath) }));
+}
+
+function onShowHiddenWorkspacesClick () {
+	showHiddenWorkspaces = !showHiddenWorkspaces;
+	document.getElementById('showHiddenWorkspacesButton').setAttribute('aria-pressed', String(showHiddenWorkspaces));
+	renderWorkspacePage();
 }
 
 function loadExtraWorkspaces () {
@@ -1097,9 +1261,19 @@ let workspacesPage = 0;
 function renderWorkspacePage () {
 	let container = document.getElementById('workspaceList');
 	container.textContent = '';
+	let shown = visibleWorkspaces();
+	// The list can shrink under the current page (a workspace just hidden).
+	workspacesPage = Math.min(workspacesPage, Math.max(0, Math.ceil(shown.length / SESSIONS_PAGE_SIZE) - 1));
 	let start = workspacesPage * SESSIONS_PAGE_SIZE;
-	for (let workspace of workspaces.slice(start, start + SESSIONS_PAGE_SIZE)) {
-		let button = create('button', workspaceLabel(workspace.path));
+	for (let workspace of shown.slice(start, start + SESSIONS_PAGE_SIZE)) {
+		let hidden = isWorkspaceHidden(workspace.path);
+		// Same comma-separated, locale-formatted date as the session list (see
+		// renderSessionPage). Client-only "extra" workspaces have none: no
+		// session was ever run there.
+		let labelParts = [workspaceLabel(workspace.path)];
+		if (hidden) labelParts.push(t('label.hiddenWorkspace'));
+		if (workspace.lastUsed) labelParts.push(new Date(workspace.lastUsed).toLocaleString());
+		let button = create('button', labelParts.join(', '));
 		button.type = 'button';
 		button.title = workspace.path;
 		button.dataset.workspacePath = workspace.path;
@@ -1112,6 +1286,10 @@ function renderWorkspacePage () {
 		renameButton.type = 'button';
 		renameButton.addEventListener('click', () => renameWorkspace(workspace.path));
 		details.appendChild(renameButton);
+		let hideButton = create('button', t(hidden ? 'button.unhideWorkspace' : 'button.hideWorkspace'));
+		hideButton.type = 'button';
+		hideButton.addEventListener('click', () => toggleWorkspaceHidden(workspace.path));
+		details.appendChild(hideButton);
 
 		let item = document.createElement('li');
 		item.appendChild(button);
@@ -1120,7 +1298,7 @@ function renderWorkspacePage () {
 	}
 
 	document.getElementById('newerWorkspacesButton').disabled = workspacesPage <= 0;
-	document.getElementById('olderWorkspacesButton').disabled = start + SESSIONS_PAGE_SIZE >= workspaces.length;
+	document.getElementById('olderWorkspacesButton').disabled = start + SESSIONS_PAGE_SIZE >= shown.length;
 }
 
 function goToWorkspacesPage (page) {
@@ -1228,6 +1406,12 @@ async function onAddWorkspaceClick () {
 	let workspacePath = await showAddWorkspaceDialog();
 	if (!workspacePath) return;
 
+	// Adding a workspace back explicitly means it's wanted again.
+	if (isWorkspaceHidden(workspacePath)) {
+		setWorkspaceHidden(workspacePath, false);
+		renderWorkspacePage();
+	}
+
 	// Already known (typed or picked a path that matches an existing entry,
 	// possibly under a different name/casing/trailing slash): just switch to
 	// it rather than adding a redundant duplicate entry.
@@ -1277,7 +1461,7 @@ async function onWindowLoad () {
 	populateSelect(document.getElementById('effortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
 	populateSelect(document.getElementById('permissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
 
-	connect(onServerMessage);
+	connect(onServerMessage, onConnectionLost);
 
 	let promptForm = document.getElementById('promptForm');
 	promptForm.addEventListener('submit', onPromptSubmit);
@@ -1299,6 +1483,7 @@ async function onWindowLoad () {
 
 	document.getElementById('newerWorkspacesButton').addEventListener('click', () => goToWorkspacesPage(workspacesPage - 1));
 	document.getElementById('olderWorkspacesButton').addEventListener('click', () => goToWorkspacesPage(workspacesPage + 1));
+	document.getElementById('showHiddenWorkspacesButton').addEventListener('click', onShowHiddenWorkspacesClick);
 
 	document.getElementById('prompt').addEventListener('keydown', event => {
 		if (event.key !== 'Enter' || !event.ctrlKey) return;
@@ -1306,11 +1491,9 @@ async function onWindowLoad () {
 		if (!document.getElementById('sendButton').disabled) promptForm.requestSubmit();
 	});
 
-	document.getElementById('firstPageButton').addEventListener('click', () => goToPage(1));
 	document.getElementById('prevPageButton').addEventListener('click', () => goToPage(currentPage - 1));
 	document.getElementById('nextPageButton').addEventListener('click', () => goToPage(currentPage + 1));
-	document.getElementById('lastPageButton').addEventListener('click', () => goToPage(pageCount()));
-	document.getElementById('pageInput').addEventListener('change', event => goToPage(Number(event.target.value)));
+	document.getElementById('goToPageButton').addEventListener('click', onGoToPageClick);
 
 	loadWorkspaces().then(restoreLastState);
 	renderMessages();

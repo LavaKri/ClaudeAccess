@@ -4,6 +4,8 @@
 // Encoding scheme and file shapes confirmed for real, see plan.md.
 
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -23,62 +25,153 @@ function claudeConfigPath (homeDir) {
 	return path.join(path.dirname(homeDir || DEFAULT_HOME_DIR), '.claude.json');
 }
 
+// Claude Code's own scheme: every character other than an ASCII letter or
+// digit becomes "-" (spaces, accents, parentheses... included). Lossy, so
+// never decoded back: a history directory's real path is read from its
+// session files instead (see listProjects below). Claude Code may also
+// shorten very long paths with a hash suffix, which this doesn't reproduce —
+// such directories are still found through their session files; only a
+// brand new workspace with a very long path would be looked up in the wrong
+// place.
 export function encodeProjectPath (projectPath) {
 	let normalized = projectPath.replace(/[\\/]+$/, '');
-	return normalized.replace(/[/\\:._]/g, '-');
+	return normalized.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
-// Newest mtime among a project's session files — a cheap proxy for "most
-// recently used" (a plain fs.stat per file, no JSONL parsing needed) used to
-// sort the workspace list the same way the session list is sorted.
-async function projectLastUsed (dir) {
+// Comparison key for two spellings of the same path (trailing separator,
+// slash style, and on Windows, case).
+function pathKey (projectPath) {
+	let key = projectPath.replace(/[\\/]+$/, '').replace(/\\/g, '/');
+	return process.platform === 'win32' ? key.toLowerCase() : key;
+}
+
+// Path key -> history directory name, as found by the last listProjects()
+// scan, so lookups by path don't depend on reproducing Claude Code's
+// encoding exactly. One map per claudeHomeDir.
+let projectDirNames = new Map();
+
+// History directory of a working directory: the one found by the last scan
+// (scanning first if none ran yet, e.g. right after a server restart), else
+// the encoded path, which is where `claude` itself would create it.
+async function projectDir (cwd, homeDir) {
+	let homeKey = homeDir || DEFAULT_HOME_DIR;
+	if (!projectDirNames.has(homeKey)) await listProjects(homeDir);
+	let dirName = projectDirNames.get(homeKey)?.get(pathKey(cwd)) || encodeProjectPath(cwd);
+	return path.join(projectsDir(homeDir), dirName);
+}
+
+// First top-level "cwd" field in a session file — every user/assistant entry
+// records the working directory `claude` ran in. Reads line by line and stops
+// as soon as it's found, rather than loading the whole (possibly large) file.
+async function readSessionCwd (filePath) {
+	let stream = createReadStream(filePath, { encoding: 'utf8' });
+	let lines = createInterface({ input: stream, crlfDelay: Infinity });
+	try {
+		for await (let line of lines) {
+			if (!line.includes('"cwd"')) continue;
+			try {
+				let entry = JSON.parse(line);
+				if (typeof entry.cwd === 'string') return entry.cwd;
+			} catch {
+				// Malformed line: keep looking.
+			}
+		}
+	} catch {
+		// Unreadable file: no cwd.
+	} finally {
+		lines.close();
+		stream.destroy();
+	}
+	return null;
+}
+
+// Session files of a history directory with their mtime, newest first.
+async function listSessionFiles (dir) {
 	let files;
 	try {
 		files = (await fs.readdir(dir)).filter(f => f.endsWith('.jsonl'));
 	} catch {
-		return null;
+		return [];
 	}
-	let stats = await Promise.all(files.map(async f => {
+	let entries = await Promise.all(files.map(async f => {
+		let filePath = path.join(dir, f);
 		try {
-			return (await fs.stat(path.join(dir, f))).mtimeMs;
+			return { filePath, mtimeMs: (await fs.stat(filePath)).mtimeMs };
 		} catch {
-			return 0;
+			return null;
 		}
 	}));
-	return stats.length ? Math.max(...stats) : null;
+	return entries.filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
-// Known working directories, deduped by their encoded folder name (Windows
-// paths can appear twice in ~/.claude.json, once with \ and once with /),
-// limited to the ones that actually have a history directory, sorted most
-// recently used first (same ordering as listSessions below).
+// The working directory a history directory belongs to. A session's "cwd"
+// isn't always the directory it's filed under (a session moved here before
+// moveSession() rewrote it, or one where `claude` was started from a
+// subdirectory), so the first one whose encoding matches the directory name
+// wins; failing that, a ~/.claude.json path that encodes to it; failing that
+// (a hash-shortened long path), the newest session's cwd as a best guess —
+// flagged as such, see listProjects.
+async function resolveProjectPath (dirName, sessionFiles, configPaths) {
+	let fallback = null;
+	for (let { filePath } of sessionFiles) {
+		let cwd = await readSessionCwd(filePath);
+		if (!cwd) continue;
+		if (encodeProjectPath(cwd) === dirName) return { path: cwd, exact: true };
+		fallback ??= cwd;
+	}
+	let configPath = configPaths.find(p => encodeProjectPath(p) === dirName);
+	if (configPath) return { path: configPath, exact: true };
+	return fallback && { path: fallback, exact: false };
+}
+
+// Every history directory holding at least one session, with its real path
+// (read from its session files, see resolveProjectPath), sorted most recently
+// used first — newest session file mtime, a cheap proxy that needs no JSONL
+// parsing. When ~/.claude.json lists the same path (possibly twice on
+// Windows, once with \ and once with /), its first spelling is kept, so
+// client-side data keyed by path (custom names...) stays stable. A best-guess
+// path that another directory already resolved to for sure is dropped rather
+// than listed twice: that's a directory whose only sessions were moved in
+// from that other workspace, before moveSession() rewrote their "cwd" — its
+// real path can't be known.
 export async function listProjects (homeDir) {
-	let existingEncoded;
+	let dirNames;
 	try {
-		existingEncoded = new Set(await fs.readdir(projectsDir(homeDir)));
+		dirNames = await fs.readdir(projectsDir(homeDir));
 	} catch {
 		return [];
 	}
 
-	let projectPaths;
+	let configPaths;
 	try {
 		let config = JSON.parse(await fs.readFile(claudeConfigPath(homeDir), 'utf8'));
-		projectPaths = Object.keys(config.projects || {});
+		configPaths = Object.keys(config.projects || {});
 	} catch {
-		projectPaths = [];
+		configPaths = [];
 	}
 
-	let seen = new Set();
+	let resolved = (await Promise.all(dirNames.map(async dirName => {
+		let sessionFiles = await listSessionFiles(path.join(projectsDir(homeDir), dirName));
+		if (!sessionFiles.length) return null;
+		let resolvedPath = await resolveProjectPath(dirName, sessionFiles, configPaths);
+		if (!resolvedPath) return null;
+		let projectPath = configPaths.find(p => pathKey(p) === pathKey(resolvedPath.path)) || resolvedPath.path;
+		return { path: projectPath, encodedName: dirName, lastUsed: sessionFiles[0].mtimeMs, exact: resolvedPath.exact };
+	}))).filter(Boolean);
+
+	// Exact matches first, so they claim their path before any best guess.
+	resolved.sort((a, b) => b.exact - a.exact);
+	let dirNamesByKey = new Map();
 	let projects = [];
-	for (let projectPath of projectPaths) {
-		let encodedName = encodeProjectPath(projectPath);
-		if (!existingEncoded.has(encodedName) || seen.has(encodedName)) continue;
-		seen.add(encodedName);
-		let lastUsed = await projectLastUsed(path.join(projectsDir(homeDir), encodedName));
-		projects.push({ path: projectPath, encodedName, lastUsed });
+	for (let { exact, ...project } of resolved) {
+		let key = pathKey(project.path);
+		if (dirNamesByKey.has(key)) continue;
+		dirNamesByKey.set(key, project.encodedName);
+		projects.push(project);
 	}
+	projectDirNames.set(homeDir || DEFAULT_HOME_DIR, dirNamesByKey);
 
-	projects.sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
+	projects.sort((a, b) => b.lastUsed - a.lastUsed);
 	return projects;
 }
 
@@ -226,7 +319,7 @@ function withTitle (session) {
 // wholly contained in another's, keeping only the most complete version —
 // same de-duplication approach as claude-code-webui.
 export async function listSessions (cwd, homeDir) {
-	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
+	let dir = await projectDir(cwd, homeDir);
 	let files;
 	try {
 		files = (await fs.readdir(dir)).filter(f => f.endsWith('.jsonl'));
@@ -244,26 +337,32 @@ export async function listSessions (cwd, homeDir) {
 		if (!isSubset) unique.push(session);
 	}
 
-	unique.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+	// Most recently active first (lastTime, the date shown in the list), not
+	// most recently started: an old session resumed yesterday belongs on top.
+	unique.sort((a, b) => new Date(b.lastTime || 0) - new Date(a.lastTime || 0));
 	return unique.map(withTitle);
 }
 
 export async function loadSession (cwd, sessionId, homeDir) {
-	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
+	let dir = await projectDir(cwd, homeDir);
 	let session = await readSessionFile(path.join(dir, `${sessionId}.jsonl`), cwd);
 	return session && withTitle(session);
 }
 
 // Appends a "custom-title" line, the same shape `claude` itself would write
-// for a manual rename — read back by readSessionFile() above.
+// for a manual rename — read back by readSessionFile() above. The file's
+// mtime is restored afterwards: it's what orders the workspace list (see
+// listProjects), and a rename isn't "using" the workspace.
 export async function setCustomTitle (cwd, sessionId, title, homeDir) {
-	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
+	let dir = await projectDir(cwd, homeDir);
 	let filePath = path.join(dir, `${sessionId}.jsonl`);
+	let { atime, mtime } = await fs.stat(filePath);
 	await fs.appendFile(filePath, JSON.stringify({ type: 'custom-title', customTitle: title }) + '\n');
+	await fs.utimes(filePath, atime, mtime);
 }
 
 export async function deleteSession (cwd, sessionId, homeDir) {
-	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
+	let dir = await projectDir(cwd, homeDir);
 	await fs.unlink(path.join(dir, `${sessionId}.jsonl`));
 }
 
@@ -271,21 +370,54 @@ export async function deleteSession (cwd, sessionId, homeDir) {
 // of the same conversation, exactly like continuing it as a new session would
 // look on disk, rather than a shared/linked history.
 export async function duplicateSession (cwd, sessionId, homeDir) {
-	let dir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
+	let dir = await projectDir(cwd, homeDir);
 	let newSessionId = randomUUID();
 	await fs.copyFile(path.join(dir, `${sessionId}.jsonl`), path.join(dir, `${newSessionId}.jsonl`));
 	return newSessionId;
 }
 
+// Rewrites an entry's "cwd" from one workspace to another, keeping any
+// subdirectory part (`claude` may have been started from one). Anything not
+// under the source workspace is left as it was.
+function relocateCwd (entryCwd, sourceCwd, targetCwd) {
+	let sourceKey = pathKey(sourceCwd);
+	let entryKey = pathKey(entryCwd);
+	if (entryKey !== sourceKey && !entryKey.startsWith(sourceKey + '/')) return entryCwd;
+	let rest = entryCwd.replace(/[\\/]+$/, '').slice(sourceCwd.replace(/[\\/]+$/, '').length);
+	return targetCwd.replace(/[\\/]+$/, '') + rest;
+}
+
 // Moves the session's raw file to another project's history directory,
 // keeping the same session id: a session is identified only by its filename,
 // never by anything tied to the workspace, so relocating the file is all
-// `claude --resume` needs to pick it up from its new home. The target
-// directory is created if this is the first session ever moved there (mirrors
-// what `claude` itself does the first time it runs in a fresh cwd).
+// `claude --resume` needs to pick it up from its new home. The entries' own
+// "cwd" fields are rewritten to the target workspace on the way (only those
+// lines; every other line is copied as is), so the file says where it now
+// belongs — that field is how listProjects() finds a history directory's
+// real path. The target directory is created if this is the first session
+// ever moved there (mirrors what `claude` itself does the first time it runs
+// in a fresh cwd), and the original mtime is kept: moving a session isn't
+// using it.
 export async function moveSession (cwd, sessionId, targetCwd, homeDir) {
-	let sourceDir = path.join(projectsDir(homeDir), encodeProjectPath(cwd));
-	let targetDir = path.join(projectsDir(homeDir), encodeProjectPath(targetCwd));
+	let sourcePath = path.join(await projectDir(cwd, homeDir), `${sessionId}.jsonl`);
+	let targetDir = await projectDir(targetCwd, homeDir);
+	let targetPath = path.join(targetDir, `${sessionId}.jsonl`);
+
+	let { atime, mtime } = await fs.stat(sourcePath);
+	let lines = (await fs.readFile(sourcePath, 'utf8')).split('\n').map(line => {
+		if (!line.includes('"cwd"')) return line;
+		try {
+			let entry = JSON.parse(line);
+			if (typeof entry.cwd !== 'string') return line;
+			let newCwd = relocateCwd(entry.cwd, cwd, targetCwd);
+			return newCwd === entry.cwd ? line : JSON.stringify({ ...entry, cwd: newCwd });
+		} catch {
+			return line;
+		}
+	});
+
 	await fs.mkdir(targetDir, { recursive: true });
-	await fs.rename(path.join(sourceDir, `${sessionId}.jsonl`), path.join(targetDir, `${sessionId}.jsonl`));
+	await fs.writeFile(targetPath, lines.join('\n'));
+	await fs.utimes(targetPath, atime, mtime);
+	await fs.unlink(sourcePath);
 }

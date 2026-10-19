@@ -153,8 +153,15 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	// guard above and spawn a second concurrent child on this connection.
 	connectionState.starting = true;
 
-	let { cliCommand } = await getConfig();
-	let [command, ...baseArgs] = parseCliCommand(useMockCli ? MOCK_CLI_COMMAND : cliCommand);
+	let command, baseArgs;
+	try {
+		let { cliCommand } = await getConfig();
+		[command, ...baseArgs] = parseCliCommand(useMockCli ? MOCK_CLI_COMMAND : cliCommand);
+	} catch (err) {
+		connectionState.starting = false;
+		send(ws, { type: 'error', message: `Failed to read config: ${err.message}` });
+		return;
+	}
 	if (!command) {
 		connectionState.starting = false;
 		send(ws, { type: 'error', message: 'No CLI command configured' });
@@ -181,8 +188,15 @@ async function runPrompt (ws, connectionState, { prompt, model, effort, permissi
 	// as an open pipe makes the real `claude` binary wait a few seconds for
 	// input before proceeding, emitting a stderr warning in the meantime that
 	// this server would otherwise surface to the client as a spurious error.
-	let child = spawn(command, args, { cwd: cwd || process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
-	connectionState.starting = false;
+	let child;
+	try {
+		child = spawn(command, args, { cwd: cwd || process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
+	} catch (err) {
+		send(ws, { type: 'error', message: `Failed to start claude process: ${err.message}` });
+		return;
+	} finally {
+		connectionState.starting = false;
+	}
 	connectionState.activeChild = child;
 
 	let lines = createInterface({ input: child.stdout });
@@ -234,6 +248,10 @@ wss.on('connection', ws => {
 			runPrompt(ws, connectionState, request);
 		} else if (request.type === 'abort') {
 			abortPrompt(ws, connectionState);
+		} else if (request.type === 'ping') {
+			// Application-level keepalive from the client (see front/WsClient.js),
+			// which can't send protocol-level ping frames from a browser.
+			send(ws, { type: 'pong' });
 		} else {
 			send(ws, { type: 'error', message: `Unknown message type: ${request.type}` });
 		}

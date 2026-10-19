@@ -11,6 +11,7 @@
 <ul id="workspaceList"></ul>
 <button type="button" id="newerWorkspacesButton" data-i18n="button.newerWorkspaces">Newer workspaces</button>
 <button type="button" id="olderWorkspacesButton" data-i18n="button.olderWorkspaces">Older workspaces</button>
+<button type="button" id="showHiddenWorkspacesButton" aria-pressed="false" data-i18n="button.showHiddenWorkspaces">Show hidden workspaces</button>
 <button type="button" id="addWorkspaceButton" data-i18n="button.addWorkspace">Add a workspace...</button>
 </section>
 <section id="sessionsArea" class="app-sidebar" aria-labelledby="sessionsAreaH2">
@@ -30,14 +31,11 @@
 </div>
 <section id="messageArea" class="app-main" aria-label="Messages" data-i18n-attr="aria-label:aria.messages">
 </section>
-<div id="paginationArea" class="app-main" role="group" aria-label="Message pagination" data-i18n-attr="aria-label:aria.pagination">
-<button type="button" id="firstPageButton" data-i18n="button.firstPage">First page</button>
+<div id="paginationArea" class="app-main" role="group" aria-label="Message pagination" data-i18n-attr="aria-label:aria.pagination" hidden>
 <button type="button" id="prevPageButton" data-i18n="button.prevPage">Previous page</button>
-<label for="pageInput" data-i18n="label.page">Page </label>
-<input type="number" id="pageInput" min="1" value="1" size="4">
-<span id="totalPagesLabel">of 1</span>
+<span id="pageButtons"></span>
 <button type="button" id="nextPageButton" data-i18n="button.nextPage">Next page</button>
-<button type="button" id="lastPageButton" data-i18n="button.lastPage">Last page</button>
+<button type="button" id="goToPageButton" data-i18n="button.goToPage">Go to page...</button>
 </div>
 <dialog id="questionArea">
 </dialog>

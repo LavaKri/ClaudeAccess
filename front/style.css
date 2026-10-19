@@ -144,7 +144,7 @@ button:disabled {
 	cursor: default;
 }
 
-button[aria-current="true"] {
+button[aria-current="true"], button[aria-current="page"] {
 	border-color: var(--color-accent);
 	border-width: 2px;
 	font-weight: bold;
