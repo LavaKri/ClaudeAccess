@@ -379,3 +379,33 @@ export async function deleteProject (projectPath, homeDir) {
 		// No ~/.claude.json, or no matching entry — nothing more to do.
 	}
 }
+
+// Claude's task list for a session (TaskCreate / TaskUpdate), as the CLI keeps
+// it: one JSON file per task in <claudeHomeDir>/tasks/<sessionId>/. Sorted by
+// id (creation order). No folder, or no tasks: an empty list.
+export async function listTasks (sessionId, homeDir) {
+	if (!/^[\w-]+$/.test(sessionId ?? '')) return [];
+	let dir = path.join(homeDir || DEFAULT_HOME_DIR, 'tasks', sessionId);
+	let names;
+	try {
+		names = (await fs.readdir(dir)).filter(name => name.endsWith('.json'));
+	} catch {
+		return [];
+	}
+	let tasks = [];
+	for (let name of names) {
+		try {
+			let task = JSON.parse(await fs.readFile(path.join(dir, name), 'utf8'));
+			tasks.push({
+				id: String(task.id ?? path.basename(name, '.json')),
+				subject: String(task.subject ?? ''),
+				description: String(task.description ?? ''),
+				status: String(task.status ?? 'pending'),
+				blockedBy: Array.isArray(task.blockedBy) ? task.blockedBy.map(String) : [],
+			});
+		} catch {
+			// Being written, or not a task: skipped.
+		}
+	}
+	return tasks.sort((a, b) => Number(a.id) - Number(b.id) || a.id.localeCompare(b.id));
+}

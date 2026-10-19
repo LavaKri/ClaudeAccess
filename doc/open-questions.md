@@ -5,7 +5,7 @@ parked for later. Each entry says where things stand and what the next step
 is. When an entry is settled, move its outcome to `plan.md` (or the code, or
 `claude-p-usage.md` for the way `claude -p` is driven) and delete it here.
 
-Last updated: 2026-10-18.
+Last updated: 2026-10-19.
 
 ## 1. Permission mode descriptions
 
@@ -54,9 +54,3 @@ yet tried by hand in the browser.
   tried by hand.
 - Permission resume inside a branch uses plain `--resume B`, no fork flag
   (so every resume does not create yet another branch); not tried by hand.
-
-## 3. Task list
-
-In the official interface you can view Claude's task list. Check how it comes
-through the `claude -p` stream, then choose where to show it (a region read
-on demand, like "Claude usage", or a popup).

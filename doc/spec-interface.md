@@ -9,7 +9,7 @@ the JAWS screen reader is a first-class constraint: dynamic content uses
 `aria-live` regions deliberately, focus is managed on purpose, and content a
 screen reader is reading is not re-rendered destructively.
 
-Last updated: 2026-10-05.
+Last updated: 2026-10-19.
 
 ## 1. Page layout (source order = reading order)
 
@@ -34,9 +34,19 @@ read on demand. On load the page shows the last values the server kept;
 before any run since the server started it says the information comes with
 the next message.
 4. Main column: session title (H2), status area (`role="status"`,
-   `aria-live="polite"`), session options menu, token usage,
-   message pagination, message log, the question dialog, the prompt form, and the
+   `aria-live="polite"`), session options menu, token usage, the **Tasks**
+   section, message pagination, message log, the question dialog, the prompt form, and the
    **Progress** region at the very bottom of the page.
+
+**Tasks section** (H2 "Tasks: 1 of 3", finished tasks out of all, or "Tasks:
+none"). Claude's own task list for the session (`TaskCreate` /
+`TaskUpdate`), read by the server from the CLI's files, so a reopened
+session shows it too. Each task is an H3 starting with its state ("Done:",
+"In progress:", "To do:") then its subject, followed by its description and,
+while tasks it depends on aren't finished, "Blocked by: <their subjects>". In
+creation order. No `aria-live`: reloaded after each task tool result, when a
+session is opened or a new one started, and only rewritten when the list
+changed, so the screen reader isn't disturbed while reading it.
 
 Two-column grid on wide screens, single column on narrow ones.
 
@@ -202,6 +212,10 @@ live behaviour is driven by `aria-live` on the div.
   parameter, cut at 80 characters); then the matching `tool_result` as
   `<Tool> done` or `<Tool>: error`. While a permission question is open:
   "Waiting for permission".
+- Task tools get their own steps, among the others: "New task: <subject>"
+  (`TaskCreate`), "Task 2: <subject>" when Claude starts a task, "Task 2
+  done: <subject>" when it finishes it (`TaskUpdate`). Their result doesn't
+  replace that step with "TaskUpdate done".
 - Messages arrive once complete (the CLI doesn't stream partial text unless
   asked to), so a step shows when its block is finished, apart from thinking.
 - A line identical to the one already shown is not rewritten, so repeated

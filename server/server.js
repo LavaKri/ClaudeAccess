@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
-import { listProjects, listHistoryProjects, listSessions, loadSession, setCustomTitle, deleteSession, deleteProject, listSessionIds } from './history.js';
+import { listProjects, listHistoryProjects, listSessions, loadSession, setCustomTitle, deleteSession, deleteProject, listSessionIds, listTasks } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
 import { getWorkspaceStore, saveWorkspaceStore, isKnownWorkspace } from './workspaces.js';
 import { getPowerShellToolDisabled, setPowerShellToolDisabled } from './project-settings.js';
@@ -72,6 +72,12 @@ app.post('/hook/permission/:runId', handleHookRequest);
 // Subscription usage last reported by the CLI (rate_limit_event, sent with
 // every run), kept in memory so a freshly loaded page can show it right away.
 let lastRateLimitInfo = null;
+
+app.get('/api/tasks/:sessionId', async (req, res) => {
+	let { claudeHomeDir } = await getConfig();
+	res.set('Cache-Control', 'no-store');
+	res.json(await listTasks(req.params.sessionId, claudeHomeDir));
+});
 
 app.get('/api/usage-limits', (req, res) => {
 	res.set('Cache-Control', 'no-store');

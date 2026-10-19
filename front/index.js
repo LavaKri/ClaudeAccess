@@ -97,6 +97,11 @@ let pendingBranchTitle = null;
 // tool_use blocks are cached by id so that when the matching tool_result comes
 // back denied, we can show the user which tool was involved.
 let toolUseCache = new Map();
+// Claude's task list for the current session (see renderTasks), and its last
+// rendering, so an unchanged list isn't rebuilt under the screen reader.
+let tasks = [];
+let renderedTasksJson = null;
+const TASK_TOOLS = ['TaskCreate', 'TaskUpdate'];
 
 function wait (ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
@@ -488,6 +493,18 @@ function describeToolStep (name, input) {
 	return text ? `${tool} ${text}` : tool;
 }
 
+// Task tools get their own step ("Task 2: Create the backend skeleton")
+// rather than the bare tool name; null for any other tool.
+function describeTaskStep (name, input) {
+	if (name === 'TaskCreate' && input?.subject) return t('progress.taskCreated', { subject: input.subject });
+	if (name !== 'TaskUpdate' || !input?.taskId) return null;
+	let id = String(input.taskId);
+	let subject = input.subject ?? tasks.find(task => task.id === id)?.subject ?? '';
+	if (input.status === 'in_progress') return t('progress.taskStarted', { id, subject });
+	if (input.status === 'completed') return t('progress.taskCompleted', { id, subject });
+	return null;
+}
+
 // Maps one streamed CLI message to a progress step, if it carries one.
 function updateProgressFromMessage (message) {
 	if (message.type === 'system' && message.subtype === 'init') {
@@ -499,13 +516,18 @@ function updateProgressFromMessage (message) {
 	} else if (message.type === 'assistant') {
 		let content = message.message?.content ?? [];
 		let toolUse = content.findLast(item => item.type === 'tool_use');
-		if (toolUse) setProgress(describeToolStep(toolUse.name, toolUse.input));
+		if (toolUse) setProgress(describeTaskStep(toolUse.name, toolUse.input) ?? describeToolStep(toolUse.name, toolUse.input));
 		else if (content.some(item => item.type === 'thinking')) setProgress(t('progress.thinking'));
 		else if (content.some(item => item.type === 'text')) setProgress(t('progress.writing'));
 	} else if (message.type === 'user') {
 		let result = (message.message?.content ?? []).find(item => item.type === 'tool_result');
 		if (result) {
 			let tool = toolUseCache.get(result.tool_use_id)?.name ?? '';
+			// A task tool's own step stays: "TaskUpdate done" would only hide it.
+			if (TASK_TOOLS.includes(tool) && !result.is_error) {
+				loadTasks();
+				return;
+			}
 			setProgress(t(result.is_error ? 'progress.toolError' : 'progress.toolDone', { tool }));
 		}
 	}
@@ -1323,6 +1345,49 @@ async function onAbortClick () {
 
 // Resets the conversation view for a brand new (or newly loaded) session,
 // without touching the working directory or the workspace list.
+// The "Tasks" region: the H2 gives the count of finished tasks, each task is
+// an H3 starting with its state (heard while moving by headings), then its
+// description and, while it waits for unfinished tasks, what blocks it.
+// Rewritten silently, and only when the list changed.
+function renderTasks () {
+	let json = JSON.stringify(tasks);
+	if (json === renderedTasksJson) return;
+	renderedTasksJson = json;
+	let done = tasks.filter(task => task.status === 'completed').length;
+	document.getElementById('tasksAreaH2').textContent = tasks.length
+		? t('heading.tasks', { done, total: tasks.length })
+		: t('heading.tasksNone');
+	let list = [];
+	for (let task of tasks) {
+		let status = ['pending', 'in_progress', 'completed'].includes(task.status) ? t('task.status.' + task.status) : task.status;
+		list.push(create('h3', t('task.heading', { status, subject: task.subject })));
+		if (task.description) list.push(create('p', task.description));
+		let blockers = task.blockedBy
+			.map(id => tasks.find(other => other.id === id))
+			.filter(other => other && other.status !== 'completed');
+		if (blockers.length && task.status !== 'completed') {
+			list.push(create('p', t('task.blockedBy', { tasks: blockers.map(other => other.subject).join(', ') })));
+		}
+	}
+	document.getElementById('tasksList').replaceChildren(...list);
+}
+
+async function loadTasks () {
+	let sessionId = currentSessionId;
+	let loaded = [];
+	if (sessionId) {
+		try {
+			loaded = await (await fetch(`/api/tasks/${encodeURIComponent(sessionId)}`)).json();
+		} catch {
+			return;
+		}
+	}
+	// Another session opened meanwhile: this list isn't its own.
+	if (sessionId !== currentSessionId) return;
+	tasks = Array.isArray(loaded) ? loaded : [];
+	renderTasks();
+}
+
 function resetConversationView () {
 	messages = [];
 	currentPage = 1;
@@ -1347,6 +1412,7 @@ function startNewSession () {
 	applyRunOptions(defaultRunOptions);
 	renderSessionOptions();
 	resetTokenUsage();
+	loadTasks();
 }
 
 // Groups consecutive messages of the same role, same as appendMessage does
@@ -1392,6 +1458,7 @@ async function resumeSession (sessionId) {
 	awaitingFreshTitle = false;
 	pendingBranchTitle = null;
 	setSessionTitle(session.title || defaultTitle());
+	loadTasks();
 	messages = groupMessages(session.messages);
 	currentPage = pageCount();
 	renderMessages();
@@ -1942,6 +2009,7 @@ async function onWindowLoad () {
 	await initTheme();
 	await initI18n();
 
+	renderTasks();
 	// Last values the server saw, so the region isn't empty until the next message.
 	fetch('/api/usage-limits').then(response => response.json()).then(renderUsage).catch(() => renderUsage(null));
 

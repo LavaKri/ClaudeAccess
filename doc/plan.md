@@ -106,6 +106,8 @@
 
 **Anciennes données du navigateur effacées (fait, 2026-10-18).** À chaque chargement, après la migration éventuelle, toutes les clés `claudeAccessible.*` du `localStorage` sont supprimées : elles n'expirent jamais d'elles-mêmes. (Ancienne question 6.)
 
+**Liste de tâches (fait, 2026-10-19).** En `claude -p`, Claude dispose des outils `TaskCreate` / `TaskUpdate` (outils différés, chargés par `ToolSearch`) ; la CLI enregistre chaque tâche dans `~/.claude/tasks/<sessionId>/<id>.json` (sujet, description, `activeForm`, état, `blocks` / `blockedBy`), avant que le résultat de l'outil arrive dans le flux (vérifié avec `haiku`). Région « Tâches » au-dessus des messages (H2 « Tâches : 1 sur 3 » ou « aucune », une tâche par H3 commençant par son état), mise à jour silencieuse ; étapes « Tâche x : sujet » sur la ligne de progression. (Ancienne question 3 de `open-questions.md`.)
+
 ## Points de vigilance
 
 - **Risque `--bare`** : la doc officielle indique que `--bare` (qui n'accepte que `ANTHROPIC_API_KEY`, pas l'abonnement Pro/Max OAuth) deviendra le comportement par défaut de `-p` dans une future version. Plusieurs issues GitHub confirment que ce n'est aujourd'hui pas résolu pour les utilisateurs OAuth. On reste volontairement sur l'invocation directe de `claude -p` (sans `--bare`) tant que ce n'est pas le défaut ; à surveiller au fil des mises à jour de `claude`.
