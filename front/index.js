@@ -56,13 +56,35 @@ function defaultTitle () {
 }
 let currentSessionTitle = '';
 
-// Set while a tool-permission prompt is shown, so the "aborted" result that
-// follows our own abort() call doesn't reset the UI out from under it.
-let awaitingToolPermission = null; // { toolName, toolUseId }
-
 let currentCwd = '';
 let currentSessionId = null;
+// Tools the user chose "Always allow" for in the current session: later
+// requests for them are answered automatically, client-side (nothing is
+// written to Claude Code's own permission settings — see plan.md).
 let allowedTools = [];
+
+// Last `status` message from the server, describing the single claude
+// process shared by the whole server (see server/cliProcess.js): which
+// workspace/session it runs, and whether it's stopped, idle, working, or
+// waiting for an answer. null until the first one arrives.
+let processState = null;
+// Set when sending the first prompt of a brand new session: the session id
+// is only known once the server reports it in a status message. Holds the
+// process's session id at send time, so a stale status still carrying the
+// previous session isn't mistaken for the new one.
+let pendingNewSession = null; // { previousSessionId }
+// The last prompt sent, kept to re-send it if the server asks to confirm a
+// restart first (see onConfirmRestart).
+let lastPromptPayload = null;
+// Messages sent while Claude was already working: each acknowledgment
+// (replayed user message) announces that Claude has now read one of them.
+let messagesSentWhileBusy = 0;
+// Set by the Abort button, so the `result` that follows reads as an
+// interruption rather than a generic error.
+let abortRequested = false;
+// After a lost connection, whatever streamed in meanwhile was missed: the
+// displayed session is reloaded from disk on the next status.
+let resyncOnNextStatus = false;
 // Known working directories, loaded once so workspace buttons can show a
 // short label while still knowing the full path to switch to.
 let workspaces = [];
@@ -71,17 +93,13 @@ let workspaces = [];
 // the turn ends — see plan.md. Used to trigger a delayed fetch once done.
 let awaitingFreshTitle = false;
 
-// tool_use blocks are cached by id so that when the matching tool_result comes
-// back denied, we can show the user which tool was involved.
-let toolUseCache = new Map();
-
 function wait (ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Reads the model/effort/permission-mode selects next to the prompt form, so
-// every prompt sent (including the silent "continue" retries after a tool
-// permission grant) uses the values currently chosen.
+// every prompt sent uses the values currently chosen (changing them while
+// Claude runs is also applied live — see onRunOptionChange).
 function getRunOptions () {
 	return {
 		model: document.getElementById('modelSelect').value,
@@ -92,9 +110,15 @@ function getRunOptions () {
 
 function applyRunOptions (options) {
 	if (!options) return;
-	if (options.model) document.getElementById('modelSelect').value = options.model;
-	if (options.effort) document.getElementById('effortSelect').value = options.effort;
-	if (options.permissionMode) document.getElementById('permissionModeSelect').value = options.permissionMode;
+	setSelectValue(document.getElementById('modelSelect'), options.model);
+	setSelectValue(document.getElementById('effortSelect'), options.effort);
+	setSelectValue(document.getElementById('permissionModeSelect'), options.permissionMode);
+}
+
+// Ignores values the select has no option for (e.g. a model the process
+// reports that this UI doesn't list), which would otherwise leave it blank.
+function setSelectValue (select, value) {
+	if (value && [...select.options].some(option => option.value === value)) select.value = value;
 }
 
 // Remembers model/effort/permission-mode per session (so reopening a session
@@ -515,38 +539,99 @@ function renderSessionOptions () {
 	container.appendChild(details);
 }
 
+// Only fills an empty prompt field: the user may now be typing a follow-up
+// while Claude works, which a suggestion mustn't overwrite.
 function suggestPrompt (suggestion) {
-	document.getElementById('prompt').value = suggestion;
+	let field = document.getElementById('prompt');
+	if (!field.value.trim()) field.value = suggestion;
 }
 
-// While claude is working (including while a permission request is pending):
-// the prompt field is read-only and Send is disabled, so the user can't start
-// a second run concurrently; Abort is only enabled then.
-let isWorking = false;
-
-function setWorking (working) {
-	isWorking = working;
-	document.getElementById('prompt').readOnly = working;
-	document.getElementById('sendButton').disabled = working;
-	document.getElementById('abortButton').disabled = !working;
+function samePath (a, b) {
+	return Boolean(a) && Boolean(b) && normalizeWorkspacePath(a) === normalizeWorkspacePath(b);
 }
 
-// The server kills a running claude process as soon as its connection drops,
-// so no result will ever come back for it: unlock the UI and say so, rather
-// than leaving Send disabled forever. A pending permission question isn't
-// affected (its run already ended), and an idle drop needs no announcement —
-// WsClient reconnects on its own, and before the next send at the latest.
+function isProcessBusy () {
+	return processState?.status === 'working' || processState?.status === 'waiting';
+}
+
+// True when the claude process runs the session shown on this page — the
+// only case where what it streams belongs in this message log. With a single
+// process for the whole server, it may well be running another session
+// (picked in another tab, or before switching workspace here).
+function isFollowingProcess () {
+	return Boolean(processState?.sessionId) && processState.sessionId === currentSessionId && samePath(processState.cwd, currentCwd);
+}
+
+// Persistent description of what Claude is doing, in its own aria-live
+// region right above the prompt field (see index.html): read out on every
+// change, and still there to re-read on demand. Unlike #statusArea, which
+// carries transient feedback ("Copied", "Page 2 of 5"...) and would lose the
+// state as soon as anything else is announced.
+function processStatusText () {
+	if (!processState) return t('process.unknown');
+	if (processState.status === 'stopped') return t(processState.reason ? `process.stopped.${processState.reason}` : 'process.stopped');
+	let text = t(`process.${processState.status}`);
+	if (!isFollowingProcess()) text = t('process.elsewhere', { status: text, workspace: workspaceLabel(processState.cwd) });
+	return text;
+}
+
+// Abort is available whenever Claude is busy, whichever session it's busy
+// with (the status text says where). Send always stays available: a message
+// sent while Claude works is read by it at its next step.
+function renderProcessStatus () {
+	document.getElementById('abortButton').disabled = !isProcessBusy();
+	// A restart's "stopped" lasts a few milliseconds before "working": not
+	// worth announcing.
+	if (processState?.status === 'stopped' && processState.reason === 'restart') return;
+	document.getElementById('processStatus').textContent = processStatusText();
+}
+
+function onStatus (state) {
+	processState = state;
+
+	// First status naming the session our new-session prompt just created.
+	if (pendingNewSession && !currentSessionId && state.sessionId
+		&& state.sessionId !== pendingNewSession.previousSessionId && samePath(state.cwd, currentCwd)) {
+		pendingNewSession = null;
+		currentSessionId = state.sessionId;
+		localStorage.setItem(LAST_SESSION_KEY, currentSessionId);
+		saveRunOptionsForSession(currentSessionId, getRunOptions());
+		renderSessionOptions();
+		updateSessionAriaCurrent();
+	}
+
+	// Mirrors the process's actual settings in the selects: the CLI can
+	// change the permission mode by itself (e.g. once a plan is approved).
+	if (isFollowingProcess()) {
+		applyRunOptions({ model: state.model, effort: state.effort, permissionMode: state.permissionMode });
+		saveRunOptionsForSession(currentSessionId, getRunOptions());
+	}
+
+	// Nothing is pending server-side anymore: drop whatever this page still
+	// shows (answered from another tab, or the process stopped).
+	if (state.status !== 'waiting') clearPermissionQueue();
+
+	if (resyncOnNextStatus) {
+		resyncOnNextStatus = false;
+		if (isFollowingProcess()) resumeSession(currentSessionId);
+	}
+
+	renderProcessStatus();
+}
+
+// The claude process outlives the connection (see server/cliProcess.js): a
+// running turn goes on without us. Its state is unknown until WsClient's
+// automatic reconnection brings a fresh status, and anything streamed in the
+// meantime is reloaded from disk then (see onStatus).
 function onConnectionLost () {
-	if (!isWorking || awaitingToolPermission) return;
-	setWorking(false);
-	setStatus(t('status.connectionLost'));
-	appendMessage('error', t('status.connectionLost'));
+	processState = null;
+	resyncOnNextStatus = true;
+	renderProcessStatus();
 }
 
 // The payload couldn't be sent at all (server unreachable even after a
-// reconnection attempt): nothing is running, so unlock the UI.
+// reconnection attempt).
 function onSendFailed () {
-	setWorking(false);
 	setStatus(t('status.connectionFailed'));
 }
 
@@ -557,28 +642,226 @@ function hideQuestion () {
 	if (dialog.open) dialog.close();
 }
 
-// Renders the question dialog with a text and a set of option buttons, and
-// replicates the text into the aria-live status region so it's read out
-// immediately, alongside focus moving to the first option. Escape is blocked
-// here (unlike showInputDialog below): a permission request must be answered
-// through one of the option buttons.
-function renderQuestion (text, options) {
+// Permission requests and questions (`can_use_tool` control requests) still
+// waiting for an answer, in arrival order, keyed by request id. Claude is
+// blocked until each is answered, so they're shown one at a time in the
+// shared dialog, as soon as it's free — another dialog (rename...) may be
+// open when one arrives, in which case it waits for that one to close.
+let permissionQueue = new Map();
+let shownPermissionId = null;
+
+function enqueuePermissionRequest ({ request_id: requestId, request }) {
+	// Already known: re-sent by the server on reconnection.
+	if (permissionQueue.has(requestId)) return;
+	if (request.tool_name !== 'AskUserQuestion' && isFollowingProcess() && allowedTools.includes(request.tool_name)) {
+		answerPermission(requestId, { behavior: 'allow', updatedInput: request.input });
+		return;
+	}
+	permissionQueue.set(requestId, request);
+	playSound('ask.mp3');
+	showNextPermissionRequest();
+}
+
+function showNextPermissionRequest () {
+	let dialog = document.getElementById('questionArea');
+	if (dialog.open || !permissionQueue.size) return;
+	let [requestId, request] = permissionQueue.entries().next().value;
+	shownPermissionId = requestId;
+	if (request.tool_name === 'AskUserQuestion') renderUserQuestions(requestId, request);
+	else renderPermissionRequest(requestId, request);
+}
+
+function answerPermission (requestId, response) {
+	permissionQueue.delete(requestId);
+	if (shownPermissionId === requestId) hideQuestion();
+	send({ type: 'permission_response', requestId, response }).catch(onSendFailed);
+}
+
+// The CLI withdrew the request (an interrupt while it was pending).
+function cancelPermissionRequest (requestId) {
+	if (!permissionQueue.delete(requestId)) return;
+	if (shownPermissionId === requestId) {
+		hideQuestion();
+		setStatus(t('status.requestCancelled'));
+	}
+}
+
+function clearPermissionQueue () {
+	permissionQueue.clear();
+	if (shownPermissionId) hideQuestion();
+}
+
+// Common frame of the permission/question dialogs: a heading naming the
+// dialog, plus a note when the request comes from a session other than the
+// one shown here. Escape is blocked: Claude waits for an actual answer.
+function startPermissionDialog (title) {
 	let dialog = document.getElementById('questionArea');
 	dialog.textContent = '';
-	dialog.appendChild(create('p', text));
-
-	let firstButton = null;
-	for (let option of options) {
-		let button = create('button', option.label);
-		button.type = 'button';
-		button.addEventListener('click', option.onClick);
-		dialog.appendChild(button);
-		firstButton ??= button;
-	}
 	dialog.oncancel = event => event.preventDefault();
+	let heading = create('h2', title);
+	heading.id = 'permissionDialogTitle';
+	dialog.setAttribute('aria-labelledby', heading.id);
+	dialog.appendChild(heading);
+	if (processState && !isFollowingProcess()) {
+		dialog.appendChild(create('p', t('permission.otherSession', { workspace: workspaceLabel(processState.cwd) })));
+	}
+	return dialog;
+}
+
+function appendDialogButton (container, label, onClick) {
+	let button = create('button', label);
+	button.type = 'button';
+	button.addEventListener('click', onClick);
+	container.appendChild(button);
+	return button;
+}
+
+// Messages for Claude itself (sent back as the denied tool's result), hence
+// in English like the rest of what the CLI tells the model, whatever the UI
+// language.
+const DENIED_MESSAGE = 'The user denied permission for this action.';
+const PLAN_REJECTED_MESSAGE = 'The user rejected this plan. Stay in plan mode and wait for their feedback.';
+const QUESTIONS_DECLINED_MESSAGE = 'The user declined to answer these questions.';
+
+// A closed question (allow once / always allow / deny / deny with a message
+// for Claude) — or, for a plan submitted in plan mode (ExitPlanMode), the
+// plan itself rendered as markdown with approve/reject choices. The text is
+// also put in the aria-live status region so it's read out right away,
+// while focus moves to the first choice.
+function renderPermissionRequest (requestId, request) {
+	let isPlan = typeof request.input?.plan === 'string';
+	let dialog = startPermissionDialog(t(isPlan ? 'permission.planTitle' : 'permission.title'));
+	let firstButton;
+	if (isPlan) {
+		dialog.appendChild(renderMarkdownMessage(request.input.plan));
+		firstButton = appendDialogButton(dialog, t('button.approvePlan'), () => answerPermission(requestId, { behavior: 'allow', updatedInput: request.input }));
+		appendDialogButton(dialog, t('button.rejectPlan'), () => answerPermission(requestId, { behavior: 'deny', message: PLAN_REJECTED_MESSAGE }));
+		setStatus(t('permission.planTitle'));
+	} else {
+		let text = describePermissionRequest(request);
+		dialog.appendChild(create('p', text));
+		firstButton = appendDialogButton(dialog, t('button.allowOnce'), () => answerPermission(requestId, { behavior: 'allow', updatedInput: request.input }));
+		appendDialogButton(dialog, t('button.alwaysAllow'), () => {
+			if (!allowedTools.includes(request.tool_name)) allowedTools = [...allowedTools, request.tool_name];
+			answerPermission(requestId, { behavior: 'allow', updatedInput: request.input });
+		});
+		appendDialogButton(dialog, t('button.deny'), () => answerPermission(requestId, { behavior: 'deny', message: DENIED_MESSAGE }));
+		setStatus(text);
+	}
+	appendDialogButton(dialog, t('button.denyWithMessage'), () => renderDenyWithMessage(requestId, request));
 	if (!dialog.open) dialog.showModal();
-	setStatus(text);
-	firstButton?.focus();
+	firstButton.focus();
+}
+
+// Second step of "deny with a message": the same dialog, now holding a field
+// for what Claude should do instead. Back returns to the request's choices.
+function renderDenyWithMessage (requestId, request) {
+	let dialog = startPermissionDialog(t('permission.denyWithMessageTitle'));
+	let form = document.createElement('form');
+	let fieldId = 'denyMessageField';
+	let label = create('label', t('permission.denyMessageLabel'));
+	label.setAttribute('for', fieldId);
+	let field = document.createElement('textarea');
+	field.id = fieldId;
+	field.rows = 4;
+	field.cols = 60;
+	let sendButton = create('button', t('button.sendDenial'));
+	sendButton.type = 'submit';
+	form.append(label, field, sendButton);
+	appendDialogButton(form, t('button.back'), () => renderPermissionRequest(requestId, request));
+	form.addEventListener('submit', event => {
+		event.preventDefault();
+		let message = field.value.trim();
+		if (!message) {
+			setStatus(t('status.denyMessageEmpty'));
+			field.focus();
+			return;
+		}
+		answerPermission(requestId, { behavior: 'deny', message });
+	});
+	dialog.appendChild(form);
+	field.focus();
+}
+
+// AskUserQuestion: one fieldset per question (up to 4), radio buttons — or
+// checkboxes for a multiple-choice one — per option, each option's
+// description attached with aria-describedby, plus a free "Other" answer.
+// Answers go back as updatedInput.answers, keyed by question text (format
+// confirmed against the real CLI; several choices are joined with ", ").
+function renderUserQuestions (requestId, request) {
+	let questions = request.input?.questions ?? [];
+	let title = t('question.title', { count: questions.length });
+	let dialog = startPermissionDialog(title);
+	let form = document.createElement('form');
+
+	let groups = questions.map((question, questionIndex) => {
+		let fieldset = document.createElement('fieldset');
+		fieldset.appendChild(create('legend', question.question));
+		let name = `question${questionIndex}`;
+		let type = question.multiSelect ? 'checkbox' : 'radio';
+
+		function addChoice (id, labelText, description) {
+			let wrapper = document.createElement('div');
+			let input = document.createElement('input');
+			input.type = type;
+			input.name = name;
+			input.id = id;
+			let label = create('label', labelText);
+			label.setAttribute('for', id);
+			wrapper.append(input, label);
+			if (description) {
+				let descriptionElement = create('span', description);
+				descriptionElement.id = `${id}Description`;
+				descriptionElement.className = 'option-description';
+				input.setAttribute('aria-describedby', descriptionElement.id);
+				wrapper.append(descriptionElement);
+			}
+			fieldset.appendChild(wrapper);
+			return input;
+		}
+
+		let choices = (question.options ?? []).map((option, optionIndex) => {
+			let input = addChoice(`${name}Option${optionIndex}`, option.label, option.description);
+			input.value = option.label;
+			return input;
+		});
+		let otherChoice = addChoice(`${name}Other`, t('question.other'));
+		let otherField = document.createElement('input');
+		otherField.type = 'text';
+		otherField.setAttribute('aria-label', t('question.otherAnswer', { question: question.question }));
+		// Typing an answer of one's own selects "Other" along with it.
+		otherField.addEventListener('input', () => { otherChoice.checked = otherField.value.trim() !== ''; });
+		otherChoice.parentElement.appendChild(otherField);
+		form.appendChild(fieldset);
+		return { question, choices, otherChoice, otherField };
+	});
+
+	let answerButton = create('button', t('button.answer'));
+	answerButton.type = 'submit';
+	form.appendChild(answerButton);
+	appendDialogButton(form, t('button.declineAnswer'), () => answerPermission(requestId, { behavior: 'deny', message: QUESTIONS_DECLINED_MESSAGE }));
+
+	form.addEventListener('submit', event => {
+		event.preventDefault();
+		let answers = {};
+		for (let group of groups) {
+			let selected = group.choices.filter(input => input.checked).map(input => input.value);
+			let other = group.otherField.value.trim();
+			if (group.otherChoice.checked && other) selected.push(other);
+			if (!selected.length) {
+				setStatus(t('status.questionUnanswered', { question: group.question.question }));
+				(group.choices[0] ?? group.otherChoice).focus();
+				return;
+			}
+			answers[group.question.question] = selected.join(', ');
+		}
+		answerPermission(requestId, { behavior: 'allow', updatedInput: { ...request.input, answers } });
+	});
+
+	dialog.appendChild(form);
+	if (!dialog.open) dialog.showModal();
+	setStatus(title);
+	(groups[0]?.choices[0] ?? answerButton).focus();
 }
 
 // Reusable modal input flow: shows a title, a message/label, a text field
@@ -728,64 +1011,25 @@ function showMoveSessionDialog (currentWorkspacePath) {
 	});
 }
 
-// Describes a tool's input in plain language rather than raw JSON — "bash"
-// and its "command" input are the only shape confirmed so far (see the mock),
-// so that's the one special-cased; anything else falls back to the tool name
-// alone (no JSON fragment shown to the user).
+// Describes a tool's input in plain language rather than raw JSON: the
+// command for Bash/PowerShell (plus Claude's own one-line description of
+// it, when given), the file for Write/Edit/Read, the address for WebFetch.
+// Anything else falls back to the tool name alone (no JSON fragment shown).
 function describeToolAction (input) {
-	if (input && typeof input.command === 'string') return t('tool.detail.command', { command: input.command });
+	if (!input) return '';
+	if (typeof input.command === 'string') {
+		let detail = t('tool.detail.command', { command: input.command });
+		return input.description ? `${detail} ${t('tool.detail.description', { description: input.description })}` : detail;
+	}
+	if (typeof input.file_path === 'string') return t('tool.detail.file', { path: toProjectRelativePath(input.file_path) });
+	if (typeof input.url === 'string') return t('tool.detail.url', { url: input.url });
 	return '';
 }
 
-// Permission requests are a closed question (allow-once / always-allow / deny):
-// only the option buttons answer, the prompt field stays unavailable. There's
-// no live pause on the CLI side — see plan.md: an unauthorized tool just comes
-// back denied, and "allowing" it means starting a new --resume run with the
-// tool added to --allowed-tools.
-function showToolPermissionRequest (toolName, toolInput, toolUseId) {
-	awaitingToolPermission = { toolName, toolUseId };
-
-	let detail = describeToolAction(toolInput);
-	let text = detail
-		? t('tool.request.withDetail', { tool: toolName, detail })
-		: t('tool.request.plain', { tool: toolName });
-
-	renderQuestion(text, [
-		{ label: t('button.allowOnce'), onClick: () => resumeWithToolAllowed(toolName, false) },
-		{ label: t('button.alwaysAllow'), onClick: () => resumeWithToolAllowed(toolName, true) },
-		{ label: t('button.deny'), onClick: denyToolPermission },
-	]);
-	playSound('ask.mp3');
-
-	setWorking(true);
-}
-
-function denyToolPermission () {
-	awaitingToolPermission = null;
-	hideQuestion();
-	setWorking(false);
-	setStatus(t('status.responseFinished'));
-}
-
-// "Always allow" persists the tool for the rest of the session; "allow once"
-// only grants it for this immediate retry, without remembering it afterwards.
-async function resumeWithToolAllowed (toolName, permanent) {
-	awaitingToolPermission = null;
-	if (permanent && !allowedTools.includes(toolName)) allowedTools = [...allowedTools, toolName];
-	let toolsForThisRun = allowedTools.includes(toolName) ? allowedTools : [...allowedTools, toolName];
-	hideQuestion();
-	setWorking(true);
-	setStatus(t('status.working'));
-	// Hidden from the message log: this isn't a message the user actually typed.
-	try {
-		await send({
-			type: 'prompt', prompt: 'continue', cwd: currentCwd,
-			sessionId: currentSessionId, allowedTools: toolsForThisRun,
-			...getRunOptions(),
-		});
-	} catch {
-		onSendFailed();
-	}
+function describePermissionRequest (request) {
+	let tool = request.display_name || request.tool_name;
+	let detail = describeToolAction(request.input);
+	return detail ? t('tool.request.withDetail', { tool, detail }) : t('tool.request.plain', { tool });
 }
 
 // Strips currentCwd from an absolute path read by a tool, so the "files read"
@@ -821,26 +1065,8 @@ function classifyToolUse (name, input) {
 
 function cacheToolUse (message) {
 	for (let item of message.message?.content ?? []) {
-		if (item.type === 'tool_use') {
-			toolUseCache.set(item.id, { name: item.name, input: item.input });
-			appendMessage('tool', classifyToolUse(item.name, item.input));
-		}
+		if (item.type === 'tool_use') appendMessage('tool', classifyToolUse(item.name, item.input));
 	}
-}
-
-// Returns true if this message was a denied tool_result and has been handled,
-// so the caller can skip its normal (Debug) display.
-function handleIfToolDenied (message) {
-	for (let item of message.message?.content ?? []) {
-		if (item.type === 'tool_result' && item.is_error) {
-			let toolInfo = toolUseCache.get(item.tool_use_id);
-			showToolPermissionRequest(toolInfo?.name ?? 'Tool', toolInfo?.input, item.tool_use_id);
-			// Nothing to do if this fails: a lost connection ends the run anyway.
-			send({ type: 'abort' }).catch(() => {});
-			return true;
-		}
-	}
-	return false;
 }
 
 // Claude Code writes the auto-generated title to the session's file on disk
@@ -853,49 +1079,87 @@ async function fetchFreshTitle () {
 	await loadSessionList();
 }
 
-function onServerMessage (message) {
-	if (message.session_id) {
-		currentSessionId = message.session_id;
-		localStorage.setItem(LAST_SESSION_KEY, currentSessionId);
-		saveRunOptionsForSession(currentSessionId, getRunOptions());
-		renderSessionOptions();
+function onResult (message) {
+	// Starting a new session within the running process ("/clear") ends with
+	// an empty result of its own: nothing to show for it.
+	if (message.num_turns === 0 && !message.result) return;
+	playSound('notify.mp3');
+	if (abortRequested && message.is_error) appendMessage('notification', t('message.interrupted'));
+	else if (message.result) appendMessage('claude', message.result);
+	else appendMessage('error', `(${message.subtype})`);
+	abortRequested = false;
+	recordTokenUsage(message.usage);
+	if (awaitingFreshTitle && !message.is_error) {
+		awaitingFreshTitle = false;
+		fetchFreshTitle();
 	}
+}
+
+function onServerMessage (message) {
+	if (message.type === 'status') return onStatus(message);
+	if (message.type === 'confirm_restart') return onConfirmRestart(message);
+	if (message.type === 'error') {
+		setStatus(t('status.error'));
+		appendMessage('error', message.message);
+		return;
+	}
+	// Permission requests and questions concern whichever session the
+	// process runs: Claude is blocked on them either way.
+	if (message.type === 'control_request' && message.request?.subtype === 'can_use_tool') return enqueuePermissionRequest(message);
+	if (message.type === 'control_cancel_request') return cancelPermissionRequest(message.request_id);
+
+	// Everything else is the conversation itself, only shown if it's the
+	// session displayed here.
+	if (!isFollowingProcess()) return;
 
 	if (message.type === 'assistant') cacheToolUse(message);
-	if (message.type === 'user' && handleIfToolDenied(message)) return;
-
+	// Acknowledgment that Claude has read a message (sent back when it
+	// actually consumes it): worth announcing for one sent while it worked.
+	if (message.type === 'user' && message.isReplay && Array.isArray(message.message?.content) && messagesSentWhileBusy > 0) {
+		messagesSentWhileBusy--;
+		setStatus(t('status.messageReceived'));
+		return;
+	}
 	// Confirmed for real (see plan.md): field is "suggestion", fires after "result".
 	if (message.type === 'prompt_suggestion') {
 		suggestPrompt(message.suggestion);
 		return;
 	}
-	if (message.type === 'result') {
-		// This is the "aborted" result from our own abort() call while putting
-		// up the permission prompt above: ignore it, the prompt stays showing.
-		if (awaitingToolPermission) return;
-		setWorking(false);
-		hideQuestion();
-		setStatus(t('status.responseFinished'));
-		playSound('notify.mp3');
-		appendMessage('claude', message.result ?? `(${message.subtype})`);
-		recordTokenUsage(message.usage);
-		if (awaitingFreshTitle && message.subtype !== 'aborted') {
-			awaitingFreshTitle = false;
-			fetchFreshTitle();
-		}
-		return;
-	}
-	if (message.type === 'error') {
-		setWorking(false);
-		setStatus(t('status.error'));
-		appendMessage('error', message.message);
-		return;
-	}
-	// Everything else (streaming deltas, system/tool events, the duplicate final
-	// assistant message...) is only useful for debugging at this stage, and
-	// hidden from the log for now. Not removed: still useful when debugging the
-	// protocol locally.
+	if (message.type === 'result') onResult(message);
+	// Everything else (system/tool events, the duplicate final assistant
+	// message...) is only useful for debugging at this stage, and hidden from
+	// the log for now. Not removed: still useful when debugging the protocol
+	// locally.
 	// appendMessage('Debug', JSON.stringify(message));
+}
+
+// Why sending a prompt now would stop Claude in the middle of its work:
+// it's busy with another workspace ('cwd') or another session ('session'),
+// which the single process can only switch to by restarting. null if not.
+function pendingRestartReason () {
+	if (!isProcessBusy()) return null;
+	if (!samePath(processState.cwd, currentCwd)) return 'cwd';
+	if (processState.sessionId !== currentSessionId) return 'session';
+	return null;
+}
+
+function confirmProcessRestart (reason) {
+	return showConfirmDialog(t('dialog.restartTitle'), t(`dialog.restartMessage.${reason}`, { workspace: workspaceLabel(processState?.cwd ?? '') }));
+}
+
+// Returns false if the payload couldn't be sent at all.
+async function sendPrompt (payload) {
+	let busyHere = isProcessBusy() && isFollowingProcess();
+	if (!payload.sessionId) pendingNewSession = { previousSessionId: processState?.sessionId ?? null };
+	lastPromptPayload = payload;
+	try {
+		await send(payload);
+	} catch {
+		onSendFailed();
+		return false;
+	}
+	if (busyHere) messagesSentWhileBusy++;
+	return true;
 }
 
 async function onPromptSubmit (event) {
@@ -906,41 +1170,67 @@ async function onPromptSubmit (event) {
 	event.preventDefault();
 	if (!text.trim()) return;
 
-	setWorking(true);
-	setStatus(t('status.working'));
+	// Asked here, before anything is sent, rather than after the server
+	// refuses: cancelling then simply leaves the prompt in the field.
+	let restartReason = pendingRestartReason();
+	if (restartReason && !await confirmProcessRestart(restartReason)) return;
+
 	// Only cleared from the field (and added to the log) once actually sent,
 	// so a failed send leaves the prompt in place, ready to retry.
-	try {
-		await send({
-			type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId, allowedTools,
-			...getRunOptions(),
-		});
-	} catch {
-		onSendFailed();
-		return;
-	}
+	let sent = await sendPrompt({
+		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId,
+		confirmRestart: Boolean(restartReason), ...getRunOptions(),
+	});
+	if (!sent) return;
 	promptField.value = '';
 	appendMessage('you', text);
 	if (!currentSessionId) awaitingFreshTitle = true;
 }
 
+// The server's own check, in case the process became busy elsewhere between
+// the check in onPromptSubmit and the prompt reaching it (another tab).
+// Nothing was sent: confirming re-sends the same prompt, cancelling gives
+// its text back in the prompt field.
+async function onConfirmRestart ({ reason }) {
+	let payload = lastPromptPayload;
+	if (!payload) return;
+	if (await confirmProcessRestart(reason)) {
+		await sendPrompt({ ...payload, confirmRestart: true });
+		return;
+	}
+	let promptField = document.getElementById('prompt');
+	if (!promptField.value.trim()) promptField.value = payload.prompt;
+	setStatus(t('status.promptNotSent'));
+}
+
+// Stops the current turn only: the process stays up, ready for the next
+// message (see server/cliProcess.js's interrupt()).
 async function onAbortClick () {
+	abortRequested = true;
 	try {
 		await send({ type: 'abort' });
 	} catch {
-		// Unreachable server: the connection drop already ended the run.
+		abortRequested = false;
 		onSendFailed();
 	}
 }
 
+// Applied to the running process right away, when it runs the session
+// shown here — no need to wait for the next prompt.
+function onRunOptionChange () {
+	if (currentSessionId) saveRunOptionsForSession(currentSessionId, getRunOptions());
+	if (!isFollowingProcess()) return;
+	send({ type: 'options', ...getRunOptions() }).catch(onSendFailed);
+}
+
 // Resets the conversation view for a brand new (or newly loaded) session,
-// without touching the working directory or the workspace list.
+// without touching the working directory or the workspace list — nor a
+// pending permission request or question, which Claude still waits on
+// whichever session is displayed.
 function resetConversationView () {
 	messages = [];
 	currentPage = 1;
 	renderMessages();
-	hideQuestion();
-	setWorking(false);
 	setStatus('');
 }
 
@@ -948,6 +1238,8 @@ function startNewSession () {
 	resetConversationView();
 	currentSessionId = null;
 	allowedTools = [];
+	pendingNewSession = null;
+	messagesSentWhileBusy = 0;
 	awaitingFreshTitle = false;
 	setSessionTitle(defaultTitle());
 	localStorage.removeItem(LAST_SESSION_KEY);
@@ -955,6 +1247,7 @@ function startNewSession () {
 	applyRunOptions(loadRunOptionsForSession(null));
 	renderSessionOptions();
 	resetTokenUsage();
+	renderProcessStatus();
 }
 
 // Groups consecutive messages of the same role, same as appendMessage does
@@ -988,8 +1281,14 @@ async function resumeSession (sessionId) {
 	if (!session) return;
 
 	resetConversationView();
+	// Reloading the same session (after a lost connection) keeps its
+	// "always allow" choices.
+	if (session.sessionId !== currentSessionId) {
+		allowedTools = [];
+		messagesSentWhileBusy = 0;
+	}
 	currentSessionId = session.sessionId;
-	allowedTools = [];
+	pendingNewSession = null;
 	awaitingFreshTitle = false;
 	setSessionTitle(session.title || defaultTitle());
 	messages = groupMessages(session.messages);
@@ -998,8 +1297,11 @@ async function resumeSession (sessionId) {
 	localStorage.setItem(LAST_SESSION_KEY, sessionId);
 	updateSessionAriaCurrent();
 	applyRunOptions(loadRunOptionsForSession(sessionId) || loadRunOptionsForSession(null));
+	// Claude currently runs this very session: show its actual settings.
+	if (isFollowingProcess()) applyRunOptions(processState);
 	renderSessionOptions();
 	resetTokenUsage(session.tokenUsage);
+	renderProcessStatus();
 }
 
 // Prompts for a new title via the shared input dialog, persists it (as a
@@ -1461,6 +1763,23 @@ async function onWindowLoad () {
 	populateSelect(document.getElementById('effortSelect'), EFFORTS, 'option.effort', config.defaultEffort);
 	populateSelect(document.getElementById('permissionModeSelect'), PERMISSION_MODES, 'option.permissionMode', config.defaultPermissionMode);
 
+	// Permission requests arriving while another dialog is open wait for it
+	// to close (see showNextPermissionRequest).
+	let questionArea = document.getElementById('questionArea');
+	questionArea.addEventListener('close', () => {
+		// The close event fires asynchronously: the next request may already
+		// be showing by then.
+		if (questionArea.open) return;
+		questionArea.removeAttribute('aria-labelledby');
+		shownPermissionId = null;
+		setTimeout(showNextPermissionRequest, 0);
+	});
+
+	for (let id of ['modelSelect', 'effortSelect', 'permissionModeSelect']) {
+		document.getElementById(id).addEventListener('change', onRunOptionChange);
+	}
+
+	renderProcessStatus();
 	connect(onServerMessage, onConnectionLost);
 
 	let promptForm = document.getElementById('promptForm');

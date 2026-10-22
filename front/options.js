@@ -49,6 +49,7 @@ async function populateForm () {
 	document.getElementById('portInput').value = config.port;
 	document.getElementById('cliCommandInput').value = config.cliCommand;
 	document.getElementById('claudeHomeDirInput').value = config.claudeHomeDir;
+	document.getElementById('idleTimeoutMinutesInput').value = config.idleTimeoutMinutes;
 
 	applyTheme(config.theme);
 }
@@ -76,6 +77,7 @@ async function onOptionsSubmit (event) {
 		port: Number(document.getElementById('portInput').value),
 		cliCommand: document.getElementById('cliCommandInput').value,
 		claudeHomeDir: document.getElementById('claudeHomeDirInput').value,
+		idleTimeoutMinutes: Number(document.getElementById('idleTimeoutMinutesInput').value),
 	};
 
 	try {

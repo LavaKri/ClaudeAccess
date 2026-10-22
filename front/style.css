@@ -213,6 +213,17 @@ dialog#questionArea::backdrop {
 	background: rgba(0, 0, 0, 0.5);
 }
 
+/* AskUserQuestion: each option's description under its label. */
+dialog#questionArea fieldset {
+	margin-bottom: 1rem;
+}
+
+dialog#questionArea .option-description {
+	display: block;
+	margin-left: 1.75rem;
+	font-size: 0.9em;
+}
+
 /* options.html is a simple single-column settings page, not the two-column
    app shell above. */
 body.options-page {
