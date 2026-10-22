@@ -27,7 +27,8 @@
     "dev": "nodemon server/server.js",
     "dev:mock": "nodemon server/server.js --mock",
     "cli-mock": "node mock/cli-mock.js",
-    "bump-version": "node scripts/bump-version.js"
+    "bump-version": "node scripts/bump-version.js",
+    "build:portable": "node scripts/build-portable.js"
   },
   "dependencies": {
     "express": "^5.1.0",

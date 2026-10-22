@@ -72,7 +72,8 @@ available; ClaudeAccess only adds the accessible page in front of it.
   already authenticated (`claude` working from a terminal) — ClaudeAccess
   does not handle login itself, it just invokes whatever `claude` command is
   configured (see the options page).
-- Node.js.
+- Node.js 20 or later — unless you use the portable Windows build (see
+  below), which bundles its own copy.
 - Currently developed and tested on Windows; some features (e.g. the native
   folder-picker dialog) currently shell out to PowerShell and are
   Windows-only for now.
@@ -85,9 +86,50 @@ npm run start
 ```
 
 Then open the app in your browser (default: `http://localhost:1080`) and
-set your working directory from the options page. See
-[CLAUDE.md](CLAUDE.md) for the available `npm run` scripts, including a mock
-CLI mode for frontend work that doesn't consume real Claude usage.
+set your working directory from the options page.
+
+### Portable Windows build (no Node.js required)
+
+A portable zip bundles the app, its dependencies and a copy of Node.js:
+unzip it anywhere and run `ClaudeAccess.bat`. It starts the server in a
+console window and opens the app in your default browser; closing that
+window stops the server. Claude Code itself still has to be installed
+separately.
+
+To build the zip yourself, from a clone of this repository on Windows:
+
+```bash
+npm run build:portable
+```
+
+This produces `dist/ClaudeAccess-<version>-win-<arch>.zip`. It bundles the
+`node.exe` that runs the build, so the zip targets the same Windows
+architecture (x64 or ARM64) as the machine that built it.
+
+### Available commands
+
+| Command | What it does |
+| --- | --- |
+| `npm run start` | Starts the server against the real `claude` CLI. |
+| `npm run dev` | Same, restarting automatically when a file changes (`nodemon`). |
+| `npm run start:mock` | Starts the server against a mock CLI (`mock/cli-mock.js`) instead of the real `claude`, for frontend work that doesn't consume Claude usage. The configured CLI command is left untouched. |
+| `npm run dev:mock` | Mock CLI, with automatic restart on file changes. |
+| `npm run cli-mock` | Runs the mock CLI on its own, outside the server. |
+| `npm run build:portable` | Builds the portable Windows zip into `dist/` (see above). |
+| `npm run bump-version` | Sets the app version to today's date. Normally done automatically on each commit by the git hook below. |
+
+Passing `--open` to the server (e.g. `npm run start -- --open`) opens the
+app in the default browser once it's listening.
+
+### Versioning
+
+The version is the date of the last change, `year.month.day` without
+leading zeros (e.g. `2026.11.1`), shown at the bottom of every page. A
+pre-commit hook stamps it automatically; enable it once per clone with:
+
+```bash
+git config core.hooksPath .githooks
+```
 
 ## Risks — please read before using this
 

@@ -20,6 +20,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_CLI_COMMAND = `node "${path.join(__dirname, '..', 'mock', 'cli-mock.js')}"`;
 const useMockCli = process.argv.includes('--mock');
 
+// `--open` opens the app in the default browser once the server listens —
+// used by the portable build's ClaudeAccess.bat (scripts/build-portable.js).
+const openBrowser = process.argv.includes('--open');
+
 // host/port come from config (see the options page's "advanced settings");
 // read once at startup since the HTTP/WS listener can't rebind itself live —
 // changing them only takes effect on the next server restart.
@@ -315,6 +319,25 @@ for (let signal of ['SIGINT', 'SIGTERM']) {
 	});
 }
 
+// The URL a browser on this machine should use: a wildcard listen address
+// isn't something to browse to, and an IPv6 literal needs brackets.
+function localUrl () {
+	let host = config.host;
+	if (!host || host === '0.0.0.0' || host === '::') host = 'localhost';
+	else if (host.includes(':')) host = `[${host}]`;
+	return `http://${host}:${config.port}/`;
+}
+
+function openInBrowser (url) {
+	let [command, args] = process.platform === 'win32' ? ['explorer.exe', [url]]
+		: process.platform === 'darwin' ? ['open', [url]]
+		: ['xdg-open', [url]];
+	let child = spawn(command, args, { detached: true, stdio: 'ignore' });
+	child.on('error', err => console.error(`Couldn't open the browser: ${err.message}`));
+	child.unref();
+}
+
 server.listen(config.port, config.host, () => {
 	console.log(`Server listening on http://${config.host}:${config.port}`);
+	if (openBrowser) openInBrowser(localUrl());
 });

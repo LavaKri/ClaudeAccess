@@ -30,6 +30,12 @@ architecture decisions behind it.
 - `npm run start:mock` / `npm run dev:mock` — same, but forced onto
   `mock/cli-mock.js` instead of the real CLI, regardless of the configured
   `cliCommand` — for frontend/protocol work without consuming real usage.
+- `npm run build:portable` — build the portable Windows zip into `dist/`
+  (`scripts/build-portable.js`; bundles the local `node.exe`).
+- `npm run bump-version` — stamp today's date as the version (see below).
+
+The README's "Available commands" table lists these for users: keep it in
+sync when adding or changing a script.
 
 ## Conventions
 
