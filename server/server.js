@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
 import { CliProcess } from './cliProcess.js';
+import { createOriginChecker, createHostChecker, rejectCrossOrigin, rejectForeignHost, requireJson } from './origin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,7 +30,16 @@ const config = {
 	wsPath: '/ws',
 };
 
+// See origin.js: no authentication here, so every request must be addressed
+// to this server under one of its own names (DNS rebinding), and every
+// state-changing request and the WebSocket upgrade must come from one of
+// this server's own pages (cross-site requests).
+const isOwnOrigin = createOriginChecker(config);
+const isOwnHost = createHostChecker(config);
+
 const app = express();
+app.use(rejectForeignHost(isOwnHost));
+app.use(rejectCrossOrigin(isOwnOrigin));
 app.use(express.static(config.webdir));
 app.use(express.json());
 
@@ -37,7 +47,7 @@ app.get('/api/config', async (req, res) => {
 	res.json(await getConfig());
 });
 
-app.put('/api/config', async (req, res) => {
+app.put('/api/config', requireJson, async (req, res) => {
 	res.json(await updateConfig(req.body || {}));
 });
 
@@ -63,7 +73,7 @@ app.get('/api/sessions/:sessionId', async (req, res) => {
 	res.json(session);
 });
 
-app.put('/api/sessions/:sessionId/title', async (req, res) => {
+app.put('/api/sessions/:sessionId/title', requireJson, async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
 	let title = String(req.body?.title || '').trim();
 	if (!title) {
@@ -124,7 +134,7 @@ app.post('/api/sessions/:sessionId/duplicate', async (req, res) => {
 	res.json({ sessionId: newSessionId });
 });
 
-app.post('/api/sessions/:sessionId/move', async (req, res) => {
+app.post('/api/sessions/:sessionId/move', requireJson, async (req, res) => {
 	let cwd = String(req.query.cwd || process.cwd());
 	let targetCwd = String(req.body?.targetCwd || '').trim();
 	if (!targetCwd) {
@@ -137,7 +147,16 @@ app.post('/api/sessions/:sessionId/move', async (req, res) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: config.wsPath });
+// Browsers always send Origin on a WebSocket handshake and WebSockets aren't
+// subject to CORS, so this check is the only thing stopping any web page
+// from driving `claude` (with any permission mode) through this socket.
+// No Origin at all means a non-browser local client, allowed as for REST.
+// Host is checked too, as for REST (DNS rebinding).
+const wss = new WebSocketServer({
+	server,
+	path: config.wsPath,
+	verifyClient: ({ origin, req }) => (!origin || isOwnOrigin(origin)) && (!req.headers.host || isOwnHost(req.headers.host)),
+});
 
 function send (ws, payload) {
 	if (ws.readyState === ws.OPEN) ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
