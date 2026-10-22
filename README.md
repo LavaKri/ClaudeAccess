@@ -51,10 +51,11 @@ auto-scroll for message history.
 
 ClaudeAccess is a small Node.js app with two halves:
 
-- A backend (Express + [`ws`](https://github.com/websockets/ws)) that spawns
-  `claude -p ... --output-format stream-json` as a child process per
-  request, streams its output to the browser over a WebSocket, and forwards
-  permission prompts and their answers back and forth.
+- A backend (Express + [`ws`](https://github.com/websockets/ws)) that keeps
+  one long-lived `claude -p --input-format stream-json --output-format
+  stream-json` child process, writes prompts to its stdin (including while
+  Claude is working), streams its output to the browser over a WebSocket,
+  and forwards permission prompts and their answers back and forth live.
 - A static frontend (plain HTML/CSS/ES modules, no framework) that renders
   that stream into an accessible page, and reads/writes Claude Code's own
   on-disk session history (`~/.claude/projects/...`) — ClaudeAccess keeps no

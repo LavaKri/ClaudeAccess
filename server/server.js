@@ -3,10 +3,10 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline';
 import { WebSocketServer } from 'ws';
 import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
+import { CliProcess } from './cliProcess.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -140,96 +140,47 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: config.wsPath });
 
 function send (ws, payload) {
-	if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
+	if (ws.readyState === ws.OPEN) ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
 }
 
-async function runPrompt (ws, connectionState, { prompt, model, effort, permissionMode, cwd, sessionId, allowedTools }) {
-	if (connectionState.activeChild || connectionState.starting) {
-		send(ws, { type: 'error', message: 'A prompt is already running on this connection' });
-		return;
-	}
-	// Set synchronously (before the first await below) so a second 'prompt'
-	// message arriving while getConfig() is still pending can't slip past the
-	// guard above and spawn a second concurrent child on this connection.
-	connectionState.starting = true;
-
-	let command, baseArgs;
-	try {
-		let { cliCommand } = await getConfig();
-		[command, ...baseArgs] = parseCliCommand(useMockCli ? MOCK_CLI_COMMAND : cliCommand);
-	} catch (err) {
-		connectionState.starting = false;
-		send(ws, { type: 'error', message: `Failed to read config: ${err.message}` });
-		return;
-	}
-	if (!command) {
-		connectionState.starting = false;
-		send(ws, { type: 'error', message: 'No CLI command configured' });
-		return;
-	}
-
-	// `claude`'s actual invocation: prompt as a positional argument right
-	// after -p (confirmed against the real CLI — see CLAUDE.md/plan.md),
-	// --output-format stream-json requires --verbose or the CLI refuses to
-	// start. --allowed-tools kept last since it's a variadic option.
-	let args = [
-		...baseArgs,
-		'-p', prompt,
-		'--output-format', 'stream-json',
-		'--verbose',
-		'--model', model || 'sonnet',
-		'--effort', effort || 'low',
-		'--permission-mode', permissionMode || 'default',
-	];
-	if (sessionId) args.push('--resume', sessionId);
-	if (allowedTools?.length) args.push('--allowed-tools', allowedTools.join(','));
-
-	// stdin explicitly ignored: nothing is ever written to it, and leaving it
-	// as an open pipe makes the real `claude` binary wait a few seconds for
-	// input before proceeding, emitting a stderr warning in the meantime that
-	// this server would otherwise surface to the client as a spurious error.
-	let child;
-	try {
-		child = spawn(command, args, { cwd: cwd || process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
-	} catch (err) {
-		send(ws, { type: 'error', message: `Failed to start claude process: ${err.message}` });
-		return;
-	} finally {
-		connectionState.starting = false;
-	}
-	connectionState.activeChild = child;
-
-	let lines = createInterface({ input: child.stdout });
-	lines.on('line', line => {
-		if (line.trim() && ws.readyState === ws.OPEN) ws.send(line);
-	});
-
-	child.stderr.on('data', chunk => {
-		send(ws, { type: 'error', message: chunk.toString() });
-	});
-
-	child.on('error', err => {
-		connectionState.activeChild = null;
-		send(ws, { type: 'error', message: `Failed to start claude process: ${err.message}` });
-	});
-
-	child.on('exit', () => {
-		connectionState.activeChild = null;
-	});
+// Every client sees the same conversation: there's a single claude process
+// for the whole server (see cliProcess.js), whichever tab drives it.
+function broadcast (payload) {
+	for (let ws of wss.clients) send(ws, payload);
 }
 
-function abortPrompt (ws, connectionState) {
-	if (!connectionState.activeChild) {
-		send(ws, { type: 'error', message: 'No prompt is currently running on this connection' });
-		return;
+const cli = new CliProcess({
+	resolveCommand: async () => parseCliCommand(useMockCli ? MOCK_CLI_COMMAND : (await getConfig()).cliCommand),
+	getIdleTimeoutMs: async () => (await getConfig()).idleTimeoutMinutes * 60000,
+	broadcast,
+});
+
+// Prompts are handled one at a time: one may have to wait for the process
+// to stop (restart) before starting it again, and the next must see the
+// result. Other requests (abort, permission answers) don't wait behind them.
+let promptChain = Promise.resolve();
+
+async function handlePrompt (ws, request) {
+	try {
+		let { confirmRestart } = await cli.prompt(request);
+		// Sent back to the requesting client only, which asks its user and
+		// re-sends the same prompt with confirmRestart: true — or drops it.
+		if (confirmRestart) send(ws, { type: 'confirm_restart', reason: confirmRestart, status: cli.status });
+	} catch (err) {
+		send(ws, { type: 'error', message: `Failed to start claude process: ${err.message}` });
 	}
-	connectionState.activeChild.kill();
-	connectionState.activeChild = null;
-	send(ws, { type: 'result', subtype: 'aborted' });
 }
 
 wss.on('connection', ws => {
-	let connectionState = { activeChild: null, starting: false };
+	// Brings a (re)connecting client up to date: process state, plus any
+	// permission request or question still waiting for an answer, re-sent
+	// exactly as the CLI first sent it.
+	send(ws, cli.snapshot());
+	for (let line of cli.pendingRequestLines()) send(ws, line);
+	cli.setClientCount(wss.clients.size);
+
+	ws.isAlive = true;
+	ws.on('pong', () => { ws.isAlive = true; });
 
 	ws.on('message', data => {
 		let request;
@@ -245,9 +196,17 @@ wss.on('connection', ws => {
 				send(ws, { type: 'error', message: 'Missing "prompt" field' });
 				return;
 			}
-			runPrompt(ws, connectionState, request);
+			promptChain = promptChain.then(() => handlePrompt(ws, request));
+		} else if (request.type === 'options') {
+			// Model / effort / permission mode changed while a process runs:
+			// applied live, without waiting for the next prompt.
+			cli.applyOptions(request);
 		} else if (request.type === 'abort') {
-			abortPrompt(ws, connectionState);
+			if (!cli.interrupt()) send(ws, { type: 'error', message: 'No prompt is currently running' });
+		} else if (request.type === 'permission_response') {
+			if (!cli.answerPermission(request.requestId, request.response)) {
+				send(ws, { type: 'error', message: 'This request is no longer pending' });
+			}
 		} else if (request.type === 'ping') {
 			// Application-level keepalive from the client (see front/WsClient.js),
 			// which can't send protocol-level ping frames from a browser.
@@ -257,10 +216,38 @@ wss.on('connection', ws => {
 		}
 	});
 
+	// Closing a tab no longer stops claude: the process outlives connections
+	// (a running turn goes on, a pending question waits for the next client).
 	ws.on('close', () => {
-		connectionState.activeChild?.kill();
+		cli.setClientCount(wss.clients.size);
 	});
 });
+
+// Server-side liveness check, so "no client connected" (which lets the idle
+// timeout stop a process waiting on a question) can be trusted: a browser
+// that vanished without closing its socket (sleep, network loss) would
+// otherwise keep counting as connected indefinitely. Browsers answer
+// protocol-level pings on their own.
+const CLIENT_PING_INTERVAL = 30000;
+setInterval(() => {
+	for (let ws of wss.clients) {
+		if (!ws.isAlive) {
+			ws.terminate();
+			continue;
+		}
+		ws.isAlive = false;
+		ws.ping();
+	}
+}, CLIENT_PING_INTERVAL);
+
+// Stops claude cleanly on Ctrl+C / termination rather than relying on it
+// noticing its stdin closing by itself.
+for (let signal of ['SIGINT', 'SIGTERM']) {
+	process.on(signal, async () => {
+		await cli.stop('shutdown');
+		process.exit(0);
+	});
+}
 
 server.listen(config.port, config.host, () => {
 	console.log(`Server listening on http://${config.host}:${config.port}`);

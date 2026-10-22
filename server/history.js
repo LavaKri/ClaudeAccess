@@ -40,7 +40,7 @@ export function encodeProjectPath (projectPath) {
 
 // Comparison key for two spellings of the same path (trailing separator,
 // slash style, and on Windows, case).
-function pathKey (projectPath) {
+export function pathKey (projectPath) {
 	let key = projectPath.replace(/[\\/]+$/, '').replace(/\\/g, '/');
 	return process.platform === 'win32' ? key.toLowerCase() : key;
 }

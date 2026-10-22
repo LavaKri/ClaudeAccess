@@ -41,6 +41,9 @@ const DEFAULTS = {
 	defaultModel: 'sonnet',
 	defaultEffort: 'low',
 	defaultPermissionMode: 'default',
+	// Minutes the claude process may stay idle before it's stopped (it's
+	// restarted, resuming the session, on the next prompt). See cliProcess.js.
+	idleTimeoutMinutes: 15,
 };
 
 function sanitize (patch) {
@@ -48,7 +51,7 @@ function sanitize (patch) {
 	for (let key of Object.keys(DEFAULTS)) {
 		if (!(key in patch)) continue;
 		let value = patch[key];
-		if (key === 'messagesPerPage' || key === 'sessionsPerPage' || key === 'titlePreviewWordCount') {
+		if (key === 'messagesPerPage' || key === 'sessionsPerPage' || key === 'titlePreviewWordCount' || key === 'idleTimeoutMinutes') {
 			let n = Number(value);
 			if (Number.isInteger(n) && n > 0) clean[key] = n;
 		} else if (key === 'port') {
@@ -82,9 +85,9 @@ export async function updateConfig (patch) {
 
 // Splits a free-form CLI invocation string into argv tokens, respecting
 // double-quoted segments (e.g. a path with spaces). No shell is ever
-// involved in spawning it (see server.js) — so prompt text appended as its
-// own argv element afterwards can't trigger shell injection regardless of
-// its contents, no matter what this command string itself contains.
+// involved in spawning it (see cliProcess.js), and prompt text never goes
+// through argv at all (it's written to the process's stdin) — so no prompt
+// content can trigger shell injection, whatever this command string contains.
 export function parseCliCommand (commandString) {
 	let tokens = [];
 	let regex = /"([^"]*)"|(\S+)/g;

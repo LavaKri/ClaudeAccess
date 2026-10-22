@@ -12,8 +12,8 @@ architecture decisions behind it.
 ## Stack
 
 - Node.js, no build step / bundler for the frontend.
-- `server/`: all backend logic (spawning `claude -p`, WebSocket handling,
-  in-memory session state).
+- `server/`: all backend logic (the single long-lived `claude -p` process in
+  `cliProcess.js`, WebSocket handling, on-disk session history).
 - `front/`: static files served as-is by Express (plain HTML/CSS/JS,
   ES modules, no framework).
 - Express serves `front/` and any auxiliary REST routes (e.g. recent working
