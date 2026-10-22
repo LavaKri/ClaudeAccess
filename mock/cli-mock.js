@@ -35,6 +35,9 @@
 //                       try mid-turn messages and interrupt
 // - "write" / "écri"  → Write tool (approval-gated unless acceptEdits)
 // - "tool" / "outil"  → Bash tool (approval-gated)
+// - "crash"           → the process exits mid-turn (code 1), no `result`
+// - "fail" / "échec"  → failed turn (`result` with is_error), as when the
+//                       CLI needs to log in again
 // - anything else     → plain text answer
 
 import { randomUUID } from 'node:crypto';
@@ -129,6 +132,8 @@ function pickScenario (prompt) {
 	if (p.includes('long') || p.includes('sleep')) return 'slow';
 	if (p.includes('write') || p.includes('écri')) return 'write';
 	if (p.includes('tool') || p.includes('outil')) return 'bash';
+	if (p.includes('crash')) return 'crash';
+	if (p.includes('fail') || p.includes('échec')) return 'fail';
 	return 'text';
 }
 
@@ -362,6 +367,15 @@ async function runTurn (message) {
 
 		let note = '';
 		let scenario = pickScenario(prompt);
+		if (scenario === 'crash') process.exit(1);
+		if (scenario === 'fail') {
+			// Shape not confirmed against the real CLI (not reproduced yet): a
+			// failed turn as when the CLI needs to log in again.
+			let text = 'Not logged in · Please run /login';
+			await streamText(turn, text);
+			await emitResult(turn, { is_error: true, result: text });
+			return;
+		}
 		if (scenario === 'ask') {
 			turn.numTurns++;
 			note = await runTool(turn, 'AskUserQuestion', {

@@ -47,6 +47,9 @@
 <textarea id="prompt" name="prompt" rows="10" cols="100"></textarea>
 <button type="submit" id="sendButton" data-i18n="button.send">Send</button>
 <button type="button" id="abortButton" disabled data-i18n="button.abort">Abort</button>
+<button type="button" id="addAttachmentsButton" data-i18n="button.addAttachments">Add attachments...</button>
+<input type="file" id="attachmentInput" multiple hidden>
+<ul id="attachmentList" aria-label="Attachments" data-i18n-attr="aria-label:aria.attachments" hidden></ul>
 <div id="optionsArea">
 <label for="modelSelect" data-i18n="label.model">Model: </label>
 <select id="modelSelect" name="model"></select>

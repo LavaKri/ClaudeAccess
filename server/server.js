@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
+import multer from 'multer';
+import { addAttachment, deleteAttachment, missingAttachments, attachmentBlocks, releaseAttachments } from './attachments.js';
 import { listProjects, listSessions, loadSession, setCustomTitle, deleteSession, duplicateSession, moveSession } from './history.js';
 import { getConfig, updateConfig, parseCliCommand } from './config.js';
 import { CliProcess } from './cliProcess.js';
@@ -146,6 +148,39 @@ app.post('/api/sessions/:sessionId/move', requireJson, async (req, res) => {
 	res.json({ ok: true });
 });
 
+// Prompt attachments (see attachments.js), one file per request so each
+// gets its own answer: accepted, too large, or of an unsupported type. Kept
+// in memory, never written to disk, and forgotten if not sent within the
+// same delay as claude's idle timeout. File names are sent as UTF-8 by
+// browsers, not the latin1 busboy assumes by default.
+const uploadAttachment = multer({
+	storage: multer.memoryStorage(),
+	defParamCharset: 'utf8',
+	limits: req => ({ fileSize: req.maxAttachmentBytes, files: 1 }),
+}).single('file');
+
+app.post('/api/attachments', async (req, res) => {
+	let { maxAttachmentSizeMB, idleTimeoutMinutes } = await getConfig();
+	req.maxAttachmentBytes = maxAttachmentSizeMB * 1024 * 1024;
+	uploadAttachment(req, res, err => {
+		if (err?.code === 'LIMIT_FILE_SIZE') {
+			res.status(413).json({ error: 'tooLarge', maxSizeMB: maxAttachmentSizeMB });
+			return;
+		}
+		if (err || !req.file) {
+			res.status(400).json({ error: 'invalid' });
+			return;
+		}
+		let result = addAttachment(req.file.originalname, req.file.buffer, idleTimeoutMinutes * 60000);
+		res.status(result.error ? 422 : 200).json(result);
+	});
+});
+
+app.delete('/api/attachments/:id', (req, res) => {
+	deleteAttachment(req.params.id);
+	res.json({ ok: true });
+});
+
 const server = http.createServer(app);
 // Browsers always send Origin on a WebSocket handshake and WebSockets aren't
 // subject to CORS, so this check is the only thing stopping any web page
@@ -180,13 +215,25 @@ const cli = new CliProcess({
 let promptChain = Promise.resolve();
 
 async function handlePrompt (ws, request) {
+	let attachmentIds = Array.isArray(request.attachments) ? request.attachments.map(String) : [];
+	// Nothing is sent: the client uploads these again from the files it
+	// kept, then re-sends the same prompt.
+	let missing = missingAttachments(attachmentIds);
+	if (missing.length) {
+		send(ws, { type: 'attachments_missing', ids: missing });
+		return;
+	}
 	try {
-		let { confirmRestart } = await cli.prompt(request);
+		let { confirmRestart } = await cli.prompt({ ...request, attachmentBlocks: attachmentBlocks(attachmentIds) });
 		// Sent back to the requesting client only, which asks its user and
 		// re-sends the same prompt with confirmRestart: true — or drops it.
+		// Its attachments are kept until then.
 		if (confirmRestart) send(ws, { type: 'confirm_restart', reason: confirmRestart, status: cli.status });
+		else releaseAttachments(attachmentIds);
 	} catch (err) {
 		send(ws, { type: 'error', message: `Failed to start claude process: ${err.message}` });
+		// Never reached claude: the client gives the prompt back to its user.
+		send(ws, { type: 'prompt_failed' });
 	}
 }
 

@@ -50,6 +50,7 @@ async function populateForm () {
 	document.getElementById('cliCommandInput').value = config.cliCommand;
 	document.getElementById('claudeHomeDirInput').value = config.claudeHomeDir;
 	document.getElementById('idleTimeoutMinutesInput').value = config.idleTimeoutMinutes;
+	document.getElementById('maxAttachmentSizeMBInput').value = config.maxAttachmentSizeMB;
 
 	applyTheme(config.theme);
 }
@@ -78,6 +79,7 @@ async function onOptionsSubmit (event) {
 		cliCommand: document.getElementById('cliCommandInput').value,
 		claudeHomeDir: document.getElementById('claudeHomeDirInput').value,
 		idleTimeoutMinutes: Number(document.getElementById('idleTimeoutMinutesInput').value),
+		maxAttachmentSizeMB: Number(document.getElementById('maxAttachmentSizeMBInput').value),
 	};
 
 	try {

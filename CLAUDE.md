@@ -33,8 +33,9 @@ architecture decisions behind it.
 
 ## Conventions
 
-- No dependencies beyond what's required for Express/WebSocket/dev reload —
-  keep the project minimal and easy to audit.
+- No dependencies beyond what's required for Express/WebSocket/dev reload
+  (plus `multer` for prompt attachment uploads) — keep the project minimal
+  and easy to audit.
 - Documentation (this file, README, code comments) is written in English to
   keep the door open for a future public release. Conversations with the
   user may happen in French. `plan.md` is the one exception: kept as

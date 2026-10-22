@@ -4,6 +4,7 @@ import { initTheme } from './theme.js';
 import { fetchConfig } from './ConfigClient.js';
 import { MODELS, EFFORTS, PERMISSION_MODES, populateSelect } from './runOptions.js';
 import { connect, send } from './WsClient.js';
+import { uploadAttachment, deleteAttachment } from './AttachmentsClient.js';
 import {
 	fetchProjects, fetchSessions, fetchSession,
 	renameSession as renameSessionRequest,
@@ -76,6 +77,20 @@ let pendingNewSession = null; // { previousSessionId }
 // The last prompt sent, kept to re-send it if the server asks to confirm a
 // restart first (see onConfirmRestart).
 let lastPromptPayload = null;
+// Files attached to the next prompt, already uploaded to the server (see
+// AttachmentsClient.js), in the order they were picked: { id, name, size,
+// file }. The original File is kept to upload it again whenever the server
+// no longer has it (expired, or lost with a server restart).
+let attachments = [];
+// The last prompt sent from this page, { text, attachments }, until Claude
+// has answered it successfully: given back to the form if it fails, or if
+// the user declines the restart it requires.
+let unresolvedPrompt = null;
+// Set once lastPromptPayload's attachments were uploaded again after the
+// server reported them missing, so that can never loop.
+let attachmentsReuploaded = false;
+// Uploads still in progress: the prompt can't be sent until they're done.
+let pendingUploads = 0;
 // Messages sent while Claude was already working: each acknowledgment
 // (replayed user message) announces that Claude has now read one of them.
 let messagesSentWhileBusy = 0;
@@ -611,6 +626,9 @@ function onStatus (state) {
 	// shows (answered from another tab, or the process stopped).
 	if (state.status !== 'waiting') clearPermissionQueue();
 
+	// The process died before answering (crash, failure to start...).
+	if (state.status === 'stopped' && (state.reason === 'crash' || state.reason === 'error')) restoreUnresolvedPrompt('status.promptFailed');
+
 	if (resyncOnNextStatus) {
 		resyncOnNextStatus = false;
 		if (isFollowingProcess()) resumeSession(currentSessionId);
@@ -1083,6 +1101,11 @@ function onResult (message) {
 	// Starting a new session within the running process ("/clear") ends with
 	// an empty result of its own: nothing to show for it.
 	if (message.num_turns === 0 && !message.result) return;
+	// A failure the user didn't cause by interrupting (e.g. the CLI needing
+	// to log in again) gives the prompt back, to send again as is. A success
+	// resolves it, unless more messages sent meanwhile are still to come.
+	if (message.is_error && !abortRequested) restoreUnresolvedPrompt('status.promptFailed');
+	else if (message.is_error || !messagesSentWhileBusy) unresolvedPrompt = null;
 	playSound('notify.mp3');
 	if (abortRequested && message.is_error) appendMessage('notification', t('message.interrupted'));
 	else if (message.result) appendMessage('claude', message.result);
@@ -1098,6 +1121,8 @@ function onResult (message) {
 function onServerMessage (message) {
 	if (message.type === 'status') return onStatus(message);
 	if (message.type === 'confirm_restart') return onConfirmRestart(message);
+	if (message.type === 'attachments_missing') return onAttachmentsMissing(message);
+	if (message.type === 'prompt_failed') return restoreUnresolvedPrompt('status.promptFailed');
 	if (message.type === 'error') {
 		setStatus(t('status.error'));
 		appendMessage('error', message.message);
@@ -1169,6 +1194,10 @@ async function onPromptSubmit (event) {
 
 	event.preventDefault();
 	if (!text.trim()) return;
+	if (pendingUploads) {
+		setStatus(t('status.attachmentsUploading'));
+		return;
+	}
 
 	// Asked here, before anything is sent, rather than after the server
 	// refuses: cancelling then simply leaves the prompt in the field.
@@ -1177,12 +1206,18 @@ async function onPromptSubmit (event) {
 
 	// Only cleared from the field (and added to the log) once actually sent,
 	// so a failed send leaves the prompt in place, ready to retry.
+	let promptAttachments = attachments;
+	attachmentsReuploaded = false;
 	let sent = await sendPrompt({
 		type: 'prompt', prompt: text, cwd: currentCwd, sessionId: currentSessionId,
+		attachments: promptAttachments.map(attachment => attachment.id),
 		confirmRestart: Boolean(restartReason), ...getRunOptions(),
 	});
 	if (!sent) return;
+	unresolvedPrompt = { text, attachments: promptAttachments };
 	promptField.value = '';
+	attachments = [];
+	renderAttachments();
 	appendMessage('you', text);
 	if (!currentSessionId) awaitingFreshTitle = true;
 }
@@ -1190,7 +1225,7 @@ async function onPromptSubmit (event) {
 // The server's own check, in case the process became busy elsewhere between
 // the check in onPromptSubmit and the prompt reaching it (another tab).
 // Nothing was sent: confirming re-sends the same prompt, cancelling gives
-// its text back in the prompt field.
+// it back to the form.
 async function onConfirmRestart ({ reason }) {
 	let payload = lastPromptPayload;
 	if (!payload) return;
@@ -1198,9 +1233,117 @@ async function onConfirmRestart ({ reason }) {
 		await sendPrompt({ ...payload, confirmRestart: true });
 		return;
 	}
+	restoreUnresolvedPrompt('status.promptNotSent');
+}
+
+// Gives the unresolved prompt (text and attachments) back to the form, but
+// only if the form is empty: whatever the user has typed or attached since
+// is never overwritten. statusKey announces the outcome, with ".kept"
+// appended when the form wasn't empty. Restored attachments the server has
+// dropped in the meantime are uploaded again on sending (see
+// onAttachmentsMissing).
+function restoreUnresolvedPrompt (statusKey) {
+	let prompt = unresolvedPrompt;
+	if (!prompt) return;
+	unresolvedPrompt = null;
 	let promptField = document.getElementById('prompt');
-	if (!promptField.value.trim()) promptField.value = payload.prompt;
-	setStatus(t('status.promptNotSent'));
+	if (promptField.value.trim() || attachments.length) {
+		setStatus(t(`${statusKey}.kept`));
+		return;
+	}
+	promptField.value = prompt.text;
+	attachments = prompt.attachments;
+	renderAttachments();
+	setStatus(t(statusKey));
+}
+
+// The server no longer has some of the last prompt's attachments (expired,
+// or lost with a server restart), and sent nothing: they're uploaded again
+// from the original files, then the same prompt is re-sent. Once only: if
+// that fails too, the prompt goes back to the form.
+async function onAttachmentsMissing ({ ids }) {
+	let payload = lastPromptPayload;
+	let prompt = unresolvedPrompt;
+	if (!payload || !prompt) return;
+	let missing = prompt.attachments.filter(attachment => ids.includes(attachment.id));
+	if (attachmentsReuploaded || !missing.length) return restoreUnresolvedPrompt('status.promptNotSent');
+	attachmentsReuploaded = true;
+	let results = await Promise.all(missing.map(attachment => uploadAttachment(attachment.file)));
+	if (results.some(result => result.error)) return restoreUnresolvedPrompt('status.promptNotSent');
+	results.forEach((result, index) => { missing[index].id = result.id; });
+	await sendPrompt({ ...payload, attachments: prompt.attachments.map(attachment => attachment.id) });
+}
+
+// Human-readable file size, in the UI's language: "120 Ko", "1.5 MB"...
+function formatSize (bytes) {
+	let units = [['size.mb', 1024 * 1024], ['size.kb', 1024]];
+	let [key, divisor] = units.find(([, unit]) => bytes >= unit) ?? ['size.bytes', 1];
+	let size = new Intl.NumberFormat(getLanguage(), { maximumFractionDigits: 1 }).format(bytes / divisor);
+	return t(key, { size });
+}
+
+// Rebuilt as a whole on every change: it only changes on the user's own
+// action (add/remove), never while a screen reader is reading it, and
+// removing an item moves the focus explicitly (see removeAttachment).
+function renderAttachments () {
+	let list = document.getElementById('attachmentList');
+	list.textContent = '';
+	list.hidden = !attachments.length;
+	for (let attachment of attachments) {
+		let label = t('attachment.label', { name: attachment.name, size: formatSize(attachment.size) });
+		let removeButton = create('button', { type: 'button', 'aria-label': t('aria.removeAttachment', { name: attachment.name }) }, t('button.removeAttachment'));
+		removeButton.addEventListener('click', () => removeAttachment(attachment));
+		let item = create('li', label + ' ');
+		item.appendChild(removeButton);
+		list.appendChild(item);
+	}
+}
+
+// Uploads each picked file on its own, then announces the outcome of the
+// whole batch at once — accepted count and every refusal with its reason —
+// rather than one announcement per file, which would cut each other off.
+async function onAttachmentInputChange (event) {
+	let input = event.target;
+	let files = [...input.files];
+	// Lets the same file be picked again later (after removing it).
+	input.value = '';
+	if (!files.length) return;
+
+	pendingUploads += files.length;
+	setStatus(t('status.attachmentsUploadingCount', { count: files.length }));
+	let results = await Promise.all(files.map(uploadAttachment));
+	pendingUploads -= files.length;
+
+	let rejections = [];
+	let acceptedCount = 0;
+	results.forEach((result, index) => {
+		if (result.error) {
+			rejections.push(t(`status.attachmentRejected.${result.error}`, { name: files[index].name, maxSize: result.maxSizeMB }));
+			return;
+		}
+		attachments.push({ id: result.id, name: result.name, size: result.size, file: files[index] });
+		acceptedCount++;
+	});
+	let messages = acceptedCount ? [t('status.attachmentsAdded', { count: acceptedCount }), ...rejections] : rejections;
+	renderAttachments();
+	setStatus(messages.join(' '));
+}
+
+// The focus goes to the next attachment's remove button, or the previous
+// one's for the last, or back to the add button once none are left.
+async function removeAttachment (attachment) {
+	let index = attachments.indexOf(attachment);
+	if (index < 0) return;
+	attachments.splice(index, 1);
+	// Removed here even if the server can't be reached: it would only stay
+	// in the server's memory, unused.
+	deleteAttachment(attachment.id);
+	renderAttachments();
+
+	let buttons = document.querySelectorAll('#attachmentList button');
+	let next = buttons[Math.min(index, buttons.length - 1)] ?? document.getElementById('addAttachmentsButton');
+	next.focus();
+	setStatus(t('status.attachmentRemoved', { name: attachment.name }));
 }
 
 // Stops the current turn only: the process stays up, ready for the next
@@ -1787,6 +1930,10 @@ async function onWindowLoad () {
 
 	let abortButton = document.getElementById('abortButton');
 	abortButton.addEventListener('click', onAbortClick);
+
+	let attachmentInput = document.getElementById('attachmentInput');
+	attachmentInput.addEventListener('change', onAttachmentInputChange);
+	document.getElementById('addAttachmentsButton').addEventListener('click', () => attachmentInput.click());
 
 	let addWorkspaceButton = document.getElementById('addWorkspaceButton');
 	addWorkspaceButton.addEventListener('click', onAddWorkspaceClick);

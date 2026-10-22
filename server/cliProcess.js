@@ -151,7 +151,8 @@ export class CliProcess {
 	// Handles a prompt from a client. Returns { confirmRestart: reason } when
 	// sending it would stop a busy process (reason: 'cwd' | 'session') and
 	// the request didn't say it was confirmed — nothing is sent in that case.
-	async prompt ({ prompt, cwd, sessionId, model, effort, permissionMode, confirmRestart }) {
+	// attachmentBlocks: content blocks sent after the prompt's text.
+	async prompt ({ prompt, attachmentBlocks = [], cwd, sessionId, model, effort, permissionMode, confirmRestart }) {
 		// Kept as the client spelled it (reported back in status messages,
 		// which clients compare with their own); compared via pathKey().
 		cwd = cwd || process.cwd();
@@ -175,7 +176,7 @@ export class CliProcess {
 		}
 
 		if (!this.child) await this.start({ cwd, sessionId, model, effort, permissionMode });
-		this.writeUserMessage(prompt);
+		this.writeUserMessage(prompt, attachmentBlocks);
 		return {};
 	}
 
@@ -283,8 +284,10 @@ export class CliProcess {
 		this.write({ type: 'control_request', request_id: requestId, request });
 	}
 
-	writeUserMessage (text) {
-		this.write({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, parent_tool_use_id: null, session_id: '' });
+	// The prompt's text comes first: history.js shows a user message as its
+	// first text block.
+	writeUserMessage (text, extraBlocks = []) {
+		this.write({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }, ...extraBlocks] }, parent_tool_use_id: null, session_id: '' });
 		this.unconsumed++;
 		this.busy = true;
 		this.emitStatus();

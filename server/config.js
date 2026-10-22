@@ -44,6 +44,9 @@ const DEFAULTS = {
 	// Minutes the claude process may stay idle before it's stopped (it's
 	// restarted, resuming the session, on the next prompt). See cliProcess.js.
 	idleTimeoutMinutes: 15,
+	// Largest file accepted as a prompt attachment, in MB. The API's own
+	// limit for an image is 5 MB. See attachments.js.
+	maxAttachmentSizeMB: 5,
 };
 
 function sanitize (patch) {
@@ -51,7 +54,7 @@ function sanitize (patch) {
 	for (let key of Object.keys(DEFAULTS)) {
 		if (!(key in patch)) continue;
 		let value = patch[key];
-		if (key === 'messagesPerPage' || key === 'sessionsPerPage' || key === 'titlePreviewWordCount' || key === 'idleTimeoutMinutes') {
+		if (key === 'messagesPerPage' || key === 'sessionsPerPage' || key === 'titlePreviewWordCount' || key === 'idleTimeoutMinutes' || key === 'maxAttachmentSizeMB') {
 			let n = Number(value);
 			if (Number.isInteger(n) && n > 0) clean[key] = n;
 		} else if (key === 'port') {
