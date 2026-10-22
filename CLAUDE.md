@@ -49,6 +49,12 @@ architecture decisions behind it.
   from the options page) defaults to the real `claude` binary. Use
   `npm run start:mock` / `dev:mock` to force the mock instead, without
   touching that config. See `plan.md` step 1 for the mock's scenarios.
+- The app version is the date of the last change, `year.month.day` without
+  leading zeros (e.g. `2026.11.1`), held in `front/appInfo.js` and
+  `package.json`. It is bumped automatically on each commit by
+  `.githooks/pre-commit` (enable once per clone with
+  `git config core.hooksPath .githooks`); `npm run bump-version` does the
+  same by hand. Never edit the version manually.
 - When manual testing needs a real `claude -p` run (not the mock) and the
   actual response content doesn't matter, use the cheapest model/effort
   combination (`sonnet`+`low`, or `haiku`) to minimize usage cost.

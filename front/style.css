@@ -95,6 +95,16 @@ body {
 	min-width: 0; /* lets long content (paths, code) shrink instead of overflowing the column */
 }
 
+.app-footer {
+	grid-column: 1 / -1;
+	color: var(--color-text-secondary);
+	font-size: 0.9em;
+}
+
+.app-footer p {
+	margin: 0;
+}
+
 @media (max-width: 45rem) {
 	body {
 		grid-template-columns: 1fr;

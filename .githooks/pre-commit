@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stamps the app version with today's date before each commit.
+# Enabled once per clone with: git config core.hooksPath .githooks
+exec node scripts/bump-version.js --stage

@@ -4,7 +4,7 @@
 // JS. No framework, no build step — consistent with the rest of front/.
 
 import { fetchConfig } from './ConfigClient.js';
-import { APP_NAME } from './appInfo.js';
+import { APP_NAME, APP_VERSION } from './appInfo.js';
 
 const SUPPORTED_LANGUAGES = ['fr', 'en'];
 const FALLBACK_LANGUAGE = 'en';
@@ -37,10 +37,11 @@ async function resolveLanguage () {
 // descriptions) that carry runtime data.
 export function t (key, vars) {
 	let text = translations[key] ?? key;
-	// { app: APP_NAME } is always available as a placeholder, so translated
-	// strings can reference the app's own name ("{{app}}") without every
-	// caller having to pass it in.
-	for (let [name, value] of Object.entries({ app: APP_NAME, ...vars })) {
+	// { app: APP_NAME, version: APP_VERSION } are always available as
+	// placeholders, so translated strings can reference the app's own name
+	// ("{{app}}") and version ("{{version}}") without every caller having to
+	// pass them in.
+	for (let [name, value] of Object.entries({ app: APP_NAME, version: APP_VERSION, ...vars })) {
 		text = text.replaceAll(`{{${name}}}`, value);
 	}
 	return text;
